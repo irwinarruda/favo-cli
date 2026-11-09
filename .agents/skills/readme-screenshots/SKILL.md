@@ -1,7 +1,7 @@
 ---
 
 name: readme-screenshots
-description: Use when a README image is stale, a change alters what the TUI shows, or the request is to retake, refresh, regenerate or add a screenshot, a print or a picture of favo. Also use when the request only says "update the images" or "show this feature in the README". Not for the logos in docs/assets, which are hand-drawn SVGs.
+description: Use when a README image is stale, a change alters what the TUI shows, or the request is to retake, refresh, regenerate or add a screenshot, a print or a picture of favo. Also use when the request only says "update the images" or "show this feature in the README". Not for the logos in docs/assets, which are copies of irwin-ui's brand/favo and are never edited here.
 ---
 
 # README screenshots
