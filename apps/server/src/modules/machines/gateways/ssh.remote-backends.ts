@@ -1,4 +1,5 @@
 import { type RpcRequest, RpcResponse } from '@favo/contracts/rpc/envelope';
+import { isTokenCount } from '@favo/contracts/rpc/usage/read-token-usage';
 import { type Machine, RemoteSystem, remoteBinaryOf } from '@favo/domain/machines/machine';
 import { stripControlCharacters, stripControlCharactersDeep } from '@favo/domain/shared/control-characters';
 import { DomainError, DomainErrorCode } from '@favo/domain/shared/domain-error';
@@ -7,6 +8,7 @@ import type { Ssh } from '@/modules/machines/gateways/ssh';
 import type { PipedProcess } from '@/modules/system/gateways/process-runner';
 
 const RequestTimeoutMs = 45_000;
+const TokenCountTimeoutMs = 15 * 60_000;
 const MissingCommandCode = 127;
 const SshFailureCode = 255;
 
@@ -19,7 +21,8 @@ export class SshRemoteBackends extends RemoteBackends {
 
   constructor(
     private readonly ssh: Ssh,
-    private readonly requestTimeoutMs = RequestTimeoutMs
+    private readonly requestTimeoutMs = RequestTimeoutMs,
+    private readonly tokenCountTimeoutMs = TokenCountTimeoutMs
   ) {
     super();
   }
@@ -28,10 +31,13 @@ export class SshRemoteBackends extends RemoteBackends {
     const connection = this.connectionOf(machine);
     const wireId = this.nextId++;
     return new Promise<RpcResponse>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const silence = new DomainError(DomainErrorCode.machineUnreachable, `${machine.name} did not answer.`);
-        this.failConnection(machine, connection, silence);
-      }, this.requestTimeoutMs);
+      const timer = setTimeout(
+        () => {
+          const silence = new DomainError(DomainErrorCode.machineUnreachable, `${machine.name} did not answer.`);
+          this.failConnection(machine, connection, silence);
+        },
+        isTokenCount(request) ? this.tokenCountTimeoutMs : this.requestTimeoutMs
+      );
       connection.pending.set(wireId, {
         originalId: request.id,
         resolve(response) {

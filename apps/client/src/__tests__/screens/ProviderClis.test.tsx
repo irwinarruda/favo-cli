@@ -77,7 +77,7 @@ describe('the provider CLIs screen', () => {
     expect(frame).toContain('esc back');
   });
   test('updates every machine with P, showing each CLI as it goes', async () => {
-    const { press, captureCharFrame, waitForFrame } = await openClis();
+    const { app, press, captureCharFrame, waitForFrame } = await openClis();
     expect(captureCharFrame()).toContain('P update all');
     await press('P');
     expect(captureCharFrame()).toContain('Update the provider CLIs on every machine?');
@@ -85,6 +85,10 @@ describe('the provider CLIs screen', () => {
     const frame = await waitForFrame((current) => current.includes('updating · just now'));
     expect(frame).toContain('updating in the background');
     expect(frame).toContain('devbox updating…');
+    for (const [machineId, versions] of Object.entries(mockDb.providerVersions)) {
+      mockDb.providerVersions[machineId] = versions.map((view) => ({ ...view, lastUpdate: undefined }));
+    }
+    while (app.state.isUpdatingProviderClis) await Bun.sleep(20);
   });
   test('shows what changed once each machine is done', async () => {
     const { press, waitForFrame } = await openClis();

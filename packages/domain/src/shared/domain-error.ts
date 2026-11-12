@@ -32,6 +32,8 @@ export const DomainErrorCode = {
   unsafeArgument: 'unsafeArgument',
   unknownMethod: 'unknownMethod',
   updateNotStarted: 'updateNotStarted',
+  logUnreadable: 'logUnreadable',
+  pricesUnavailable: 'pricesUnavailable',
   internal: 'internal',
 } as const;
 export type DomainErrorCode = ValueOf<typeof DomainErrorCode>;

@@ -25,6 +25,7 @@ setDefaultTimeout(60_000);
 const Main = `${import.meta.dir}/../src/main.ts`;
 const isWindows = process.platform === 'win32';
 const RemoteFavo = `#!/bin/bash\nexec bun ${Main} "$@"\n`;
+const NoPricesUrl = 'http://127.0.0.1:9/prices.json';
 const HostileFavo = `#!/bin/sh\nexec bun "${import.meta.dir}/support/fake-bin/hostile-favo.ts" "$@"\n`;
 
 let root: string;
@@ -41,6 +42,7 @@ async function favo(args: string[], extraEnv: Record<string, string> = {}, cwd?:
       FAVO_HOSTNAME: 'test-mac',
       FAKE_SSH_LOG: `${root}/ssh.log`,
       FAKE_REMOTE_HOME: remoteHome,
+      FAVO_PRICES_URL: NoPricesUrl,
       NO_COLOR: '1',
       ...extraEnv,
     },
@@ -537,6 +539,87 @@ describe('favo on this machine', () => {
   });
 });
 
+describe('favo usage --tokens', () => {
+  const Million = 1_000_000;
+  const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+
+  function writeLogs(target: string) {
+    const usage = {
+      input_tokens: Million,
+      cache_read_input_tokens: 20 * Million,
+      cache_creation_input_tokens: 2 * Million,
+      output_tokens: Million,
+    };
+    const message = { id: 'msg_one', model: 'claude-test-1', content: [{ type: 'text', text: 'never read' }], usage };
+    const line = { type: 'assistant', timestamp: hoursAgo(2), requestId: 'req_one', sessionId: 'session-a', message };
+    mkdirSync(`${target}/.claude/projects/-hive`, { recursive: true });
+    writeFileSync(
+      `${target}/.claude/projects/-hive/session-a.jsonl`,
+      `${JSON.stringify(line)}\n${JSON.stringify(line)}\n`
+    );
+    const counters = { input_tokens: 10 * Million, cached_input_tokens: 8 * Million, output_tokens: 2 * Million };
+    const info = { last_token_usage: counters, total_token_usage: counters };
+    const rollout = [
+      { timestamp: hoursAgo(3), type: 'session_meta', payload: { id: 'session-c' } },
+      { timestamp: hoursAgo(3), type: 'turn_context', payload: { model: 'gpt-test-1' } },
+      { timestamp: hoursAgo(3), type: 'event_msg', payload: { type: 'token_count', info } },
+    ];
+    const text = rollout.map((each) => JSON.stringify(each)).join('\n');
+    mkdirSync(`${target}/.codex/sessions/2026/11`, { recursive: true });
+    writeFileSync(`${target}/.codex/sessions/2026/11/rollout-c.jsonl.zst`, Bun.zstdCompressSync(Buffer.from(text)));
+  }
+
+  it('counts the logs on disk, a compressed rollout included, and keeps the record', async () => {
+    writeLogs(home);
+    const { stdout, code } = await favo(['usage', '--tokens']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('Tokens   last 30 days · all machines · all accounts · all providers');
+    expect(stdout).toContain('36M tokens   2 sessions');
+    expect(stdout).toMatch(/Claude Code +▄+▂+ +24M +67%/);
+    expect(stdout).toMatch(/Codex +▄+▂+ +12M +33%/);
+    expect(stdout).not.toContain('$');
+    const record = JSON.parse(readFileSync(`${home}/.favo/usage/tokens.json`, 'utf8'));
+    expect(record.rows).toHaveLength(2);
+    expect(statSync(`${home}/.favo/usage/tokens.json`).mode & 0o077).toBe(isWindows ? statSync(home).mode & 0o077 : 0);
+  });
+  it('keeps the count when the logs are gone, as Claude Code deletes them after 30 days', async () => {
+    writeLogs(home);
+    await favo(['usage', '--tokens']);
+    removeFolder(`${home}/.claude/projects`);
+    const { stdout } = await favo(['usage', '--tokens']);
+    expect(stdout).toContain('36M tokens   2 sessions');
+  });
+  it('prices the tokens from the table it fetched, and keeps a copy for when it is offline', async () => {
+    writeLogs(home);
+    const table = {
+      'claude-test-1': {
+        input_cost_per_token: 0.000003,
+        output_cost_per_token: 0.000015,
+        cache_read_input_token_cost: 0.0000003,
+        cache_creation_input_token_cost: 0.00000375,
+      },
+      'openai/gpt-test-1': { input_cost_per_token: 0.000002, output_cost_per_token: 0.000008 },
+    };
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => Response.json(table) });
+    const online = await favo(['usage', '--cost'], { FAVO_PRICES_URL: `http://127.0.0.1:${server.port}/prices.json` });
+    await server.stop(true);
+    expect(online.stdout).toContain('$67.50 at API prices   36M tokens   $54.00 saved by cache');
+    expect(online.stdout).toContain('not your subscription bill');
+    const offline = await favo(['usage', '--tokens', '--json']);
+    const document = JSON.parse(offline.stdout);
+    expect(document.prices.source).toBe('litellm');
+    expect(document.days.map((day: { cost: number }) => day.cost).toSorted()).toEqual([31.5, 36]);
+    expect(document.machines[0]).toMatchObject({ id: 'local', name: 'test-mac' });
+  });
+  it('refuses two pages at once, and a period on limits', async () => {
+    const both = await favo(['usage', '--tokens', '--cost']);
+    expect(both.code).toBe(1);
+    expect(both.stderr).toContain('favo: Pick one of --limits, --tokens and --cost.');
+    const period = await favo(['usage', '--days', '7']);
+    expect(period.stderr).toContain('favo: Limits have no period.');
+  });
+});
+
 describe.skipIf(isWindows)('favo with another machine', () => {
   function installAsset() {
     const system = platform() === 'darwin' ? 'darwin' : 'linux';
@@ -564,6 +647,23 @@ describe.skipIf(isWindows)('favo with another machine', () => {
     await joinRemote();
     const { stdout } = await favo(['usage', '--machine', 'remote']);
     expect(stdout).toContain('68% left');
+  });
+  it('counts tokens on the other machine, over the same pipe, and keeps what it said', async () => {
+    await joinRemote();
+    const line = {
+      type: 'assistant',
+      timestamp: new Date(Date.now() - 3_600_000).toISOString(),
+      requestId: 'req_remote',
+      sessionId: 'session-remote',
+      message: { id: 'msg_remote', model: 'claude-test-1', usage: { input_tokens: 7_000_000, output_tokens: 0 } },
+    };
+    mkdirSync(`${remoteHome}/.claude/projects/-srv`, { recursive: true });
+    writeFileSync(`${remoteHome}/.claude/projects/-srv/session-remote.jsonl`, JSON.stringify(line));
+    const { stdout } = await favo(['usage', '--tokens', '--machine', 'remote']);
+    expect(stdout).toContain('1 of 2 machines');
+    expect(stdout).toContain('7M tokens   1 session');
+    expect(JSON.parse(readFileSync(`${home}/.favo/usage/machines/remote.json`, 'utf8')).rows).toHaveLength(1);
+    expect(existsSync(`${remoteHome}/.favo/usage/tokens.json`)).toBe(true);
   });
   it('shows both machines in one list', async () => {
     await joinRemote();

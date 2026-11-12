@@ -1,0 +1,15 @@
+export const UsageHelpKeys = [
+  ['l / t / c', 'limits, tokens, cost'],
+  ['tab', 'the next tab'],
+  ['1 to 5', '24h, 7d, 30d, 90d, all'],
+  ['← →', 'a shorter or longer period'],
+  ['f', 'choose machines and accounts'],
+  ['b', 'tokens by model or by day'],
+  ['r', 'read again'],
+  ['↑ ↓ / j k', 'scroll'],
+  ['esc / u', 'back to the comb'],
+  ['q', 'quit'],
+  ['↗ → ↘', 'ahead of, on or under pace'],
+  ['▄ ▂ ▁ █', 'left, next reset, rest, pace'],
+  ['cost', 'at API prices, not a bill'],
+];

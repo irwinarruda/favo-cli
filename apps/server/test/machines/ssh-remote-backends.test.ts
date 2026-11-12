@@ -118,6 +118,25 @@ describe('a connection that fails', () => {
     await backends.request(unixBox, ping).catch(() => undefined);
     expect(ssh.opened).toBe(2);
   });
+  it('gives a count of tokens longer, because it reads every log on the machine', async () => {
+    const ssh = new ReplyingSsh(() => undefined);
+    const backends = new SshRemoteBackends(ssh, 10, 80);
+    const count = { id: 1, method: 'usage.tokens', params: { isFresh: true } };
+    let failure: unknown;
+    const counting = backends.request(unixBox, count).catch((error) => {
+      failure = error;
+    });
+    await Bun.sleep(40);
+    expect({ failure, killed: ssh.killed }).toEqual({ failure: undefined, killed: 0 });
+    await counting;
+    expect(failure).toMatchObject({ code: 'machineUnreachable' });
+  });
+  it('does not wait that long for the record a machine already keeps', async () => {
+    const ssh = new ReplyingSsh(() => undefined);
+    const backends = new SshRemoteBackends(ssh, 10, 60_000);
+    const stored = { id: 1, method: 'usage.tokens', params: { isFresh: false } };
+    await expect(backends.request(unixBox, stored)).rejects.toMatchObject({ code: 'machineUnreachable' });
+  });
   it('keeps the connection while replies arrive', async () => {
     const ssh = new ReplyingSsh((request) => JSON.stringify({ id: request.id, ok: true, result: {} }));
     const backends = new SshRemoteBackends(ssh, 50);

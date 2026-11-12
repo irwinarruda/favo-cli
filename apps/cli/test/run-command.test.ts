@@ -60,7 +60,7 @@ describe('usage', () => {
   ) {
     await seedClaudeBase(server.fileSystem);
     server.clis.claude.login = { login: LoginState.signedIn, identity };
-    server.clis.claude.usageReading = { windows: [session(usedPercent, resetMinutes)] };
+    server.clis.claude.limitsReading = { windows: [session(usedPercent, resetMinutes)] };
   }
 
   it('pools the seats of every machine', async () => {
@@ -93,7 +93,7 @@ describe('usage', () => {
     await mac.client.call(addMachine, { target: 'bee@devbox' });
     mac.remotes.connect('devbox', devbox.router);
     await mac.run('usage', '--machine', 'devbox');
-    expect(mac.clis.claude.usageSessions).toEqual([]);
+    expect(mac.clis.claude.limitsSessions).toEqual([]);
     expect(mac.lines.join('\n')).toContain('93% left');
   });
   it('refuses a machine it does not know', async () => {
@@ -150,7 +150,7 @@ describe('usage', () => {
   it('sums up a provider with no limits', async () => {
     const mac = harness();
     await signedIn(mac, 'mac@bee.dev', 32);
-    mac.clis.claude.usageReading = undefined;
+    mac.clis.claude.limitsReading = undefined;
     await mac.run('usage');
     expect(mac.lines.join('\n')).toMatch(/Claude Code +no limits available/);
   });
@@ -160,7 +160,7 @@ describe('usage', () => {
     await signedIn(mac, 'mac@bee.dev', 32);
     await signedIn(devbox, 'devbox@bee.dev', 7);
     const unavailable = { reason: 'probeFailed' as const, message: 'Claude Code did not answer.' };
-    devbox.clis.claude.usageReading = { windows: [], unavailable };
+    devbox.clis.claude.limitsReading = { windows: [], unavailable };
     await mac.client.call(addMachine, { target: 'bee@devbox' });
     mac.remotes.connect('devbox', devbox.router);
     await mac.run('usage');

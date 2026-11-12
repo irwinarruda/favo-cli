@@ -1,149 +1,217 @@
-import type { SeatUsageView } from '@favo/contracts/rpc/views';
-import { isOlderFavoError } from '@favo/domain/machines/machine';
-import { ownValue } from '@favo/domain/shared/own-value';
+import { ProviderOrder, Providers } from '@favo/domain/providers/provider';
 import {
-  keepLastGoodUsage,
-  readingAgeOf,
-  UsageFreshForMs,
-  UsageUnavailableReason,
-  unavailableUsage,
-} from '@favo/domain/usage/seat-usage';
-import { collectUsagePools, type UsagePool } from '@favo/domain/usage/usage-pool';
+  DefaultUsageView,
+  filterSummaryOf,
+  isFiltered,
+  isNothingSelected,
+  NoUsageFilter,
+  onlyFilter,
+  stepIn,
+  toggledFilter,
+  type UsageFilter,
+  type UsageFilterChoices,
+  type UsageFilterGroup,
+  UsageFilterGroups,
+  UsagePage,
+  UsagePages,
+  type UsagePeriod,
+  UsagePeriods,
+} from '@favo/domain/usage/usage-view';
 import { computeFrom } from '@/libs/zustand';
+import type { Account } from '@/modules/comb/app/entities/Account';
 import type { Machine } from '@/modules/comb/app/entities/Machine';
-import { MachinePresence } from '@/modules/comb/app/enums/MachinePresence';
+import type { MachineLimits } from '@/modules/usage/app/services/LimitsService';
+import type { MachineTokens } from '@/modules/usage/app/services/TokensService';
 import { container } from '@/shared/container';
 import type { ServiceCreator } from '@/shared/stores/app';
 
-export type MachineUsage = {
-  seats: SeatUsageView[];
-  readAt: number;
-  isReading: boolean;
-  isOutdated: boolean;
-  problem?: string;
-};
-
-export type UsageMachineLine = { id: string; name: string; label: string; isOld: boolean };
-
 export type UsageService = {
   isUsageOpen: boolean;
+  isUsageViewLoaded: boolean;
+  isUsageFilterOpen: boolean;
   usageNow: number;
-  machineUsage: Record<string, MachineUsage>;
-  usagePools: UsagePool[];
-  usageMachineLines: UsageMachineLine[];
-  isUsageReading: boolean;
-  preloadUsage(machineId: string): Promise<void>;
+  usageTimeZone: string;
+  usagePage: UsagePage;
+  usagePeriod: UsagePeriod;
+  usageFilter: UsageFilter;
+  usageFilterCursor: number;
+  usageFilterChoices: UsageFilterChoices;
+  usageFilterSummary: string;
+  isUsageFiltered: boolean;
+  isUsageSelectionEmpty: boolean;
+  loadUsageView(): Promise<void>;
   openUsage(): Promise<void>;
   closeUsage(): void;
+  loadUsagePage(): Promise<void>;
+  showUsagePage(page: UsagePage): Promise<void>;
+  stepUsagePage(step: number): Promise<void>;
+  showUsagePeriod(period: UsagePeriod): Promise<void>;
+  stepUsagePeriod(step: number): Promise<void>;
+  openUsageFilter(): void;
+  closeUsageFilter(): void;
+  moveUsageFilterCursor(step: number): void;
+  toggleUsageFilterAt(index?: number): void;
+  keepOnlyUsageFilterAtCursor(): void;
+  toggleUsageFilter(group: UsageFilterGroup, id: string): void;
+  keepOnlyUsageFilter(group: UsageFilterGroup, id: string): void;
+  clearUsageFilter(): void;
   refreshUsage(): Promise<void>;
   tickUsage(): void;
-  readMachineUsage(machine: Machine): Promise<void>;
 };
 
 export const createUsageService: ServiceCreator<UsageService> = (set, get) => ({
   ...computeFrom(
     get,
-    (state) => [state.machines, state.machineUsage, state.usageNow] as const,
-    ({ machines, machineUsage, usageNow }) => ({
-      usagePools: collectUsagePools(_seatsOf(machines, machineUsage), usageNow),
-      usageMachineLines: machines.map((machine) =>
-        _machineLineOf(machine, ownValue(machineUsage, machine.id), usageNow)
-      ),
-      isUsageReading: Object.values(machineUsage).some((usage) => usage.isReading),
-    })
+    (state) => [state.machines, state.accounts, state.machineLimits, state.machineTokens, state.usageFilter] as const,
+    ({ machines, accounts, machineLimits, machineTokens, usageFilter }) => {
+      const usageFilterChoices = _choicesOf(machines, accounts, machineLimits, machineTokens, usageFilter);
+      return {
+        usageFilterChoices,
+        usageFilterSummary: filterSummaryOf(usageFilterChoices),
+        isUsageFiltered: isFiltered(usageFilterChoices),
+        isUsageSelectionEmpty: isNothingSelected(usageFilterChoices),
+      };
+    }
   ),
   isUsageOpen: false,
+  isUsageViewLoaded: false,
+  isUsageFilterOpen: false,
   usageNow: 0,
-  machineUsage: {},
-  async preloadUsage(machineId) {
-    const { machines, machineUsage, readMachineUsage } = get();
-    const machine = machines.find((candidate) => candidate.id === machineId);
-    if (machine && _isDue(machine, machineUsage)) await readMachineUsage(machine);
+  usageTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  usagePage: DefaultUsageView.page,
+  usagePeriod: DefaultUsageView.period,
+  usageFilter: NoUsageFilter,
+  usageFilterCursor: 0,
+  async loadUsageView() {
+    const usageRepository = container.get('IUsageRepository');
+    const { page, period } = await usageRepository.readView();
+    if (get().isUsageViewLoaded || get().isUsageOpen) return;
+    set({ usagePage: page, usagePeriod: period, isUsageViewLoaded: true });
   },
   async openUsage() {
-    set({ isUsageOpen: true, usageNow: Date.now() });
-    const { machines, machineUsage, readMachineUsage } = get();
-    const due = machines.filter((machine) => _isDue(machine, machineUsage));
-    await Promise.all(due.map(readMachineUsage));
+    set({
+      isUsageOpen: true,
+      isUsageViewLoaded: true,
+      isUsageFilterOpen: false,
+      usageFilter: NoUsageFilter,
+      usageNow: Date.now(),
+    });
+    await get().loadUsagePage();
   },
   closeUsage() {
-    set({ isUsageOpen: false });
+    set({ isUsageOpen: false, isUsageFilterOpen: false });
+  },
+  async loadUsagePage() {
+    const { usagePage, openLimits, openTokens } = get();
+    if (usagePage === UsagePage.limits) await openLimits();
+    else await openTokens();
+  },
+  async showUsagePage(page) {
+    const { usagePage, usagePeriod, loadUsagePage } = get();
+    if (page === usagePage) return;
+    const usageRepository = container.get('IUsageRepository');
+    set({ usagePage: page, usageNow: Date.now() });
+    await Promise.all([usageRepository.saveView({ page, period: usagePeriod }), loadUsagePage()]);
+  },
+  async stepUsagePage(step) {
+    const { usagePage, showUsagePage } = get();
+    await showUsagePage(stepIn(UsagePages, usagePage, step, true));
+  },
+  async showUsagePeriod(period) {
+    const { usagePage, usagePeriod } = get();
+    if (usagePage === UsagePage.limits || period === usagePeriod) return;
+    const usageRepository = container.get('IUsageRepository');
+    set({ usagePeriod: period, usageNow: Date.now() });
+    await usageRepository.saveView({ page: usagePage, period });
+  },
+  async stepUsagePeriod(step) {
+    const { usagePeriod, showUsagePeriod } = get();
+    await showUsagePeriod(stepIn(UsagePeriods, usagePeriod, step, false));
+  },
+  openUsageFilter() {
+    set({ isUsageFilterOpen: true, usageFilterCursor: 0 });
+  },
+  moveUsageFilterCursor(step) {
+    const last = _filterRowsOf(get().usageFilterChoices).length - 1;
+    set((state) => ({ usageFilterCursor: Math.max(0, Math.min(last, state.usageFilterCursor + step)) }));
+  },
+  toggleUsageFilterAt(index) {
+    const { usageFilterChoices, usageFilterCursor, toggleUsageFilter } = get();
+    const cursor = index ?? usageFilterCursor;
+    const row = _filterRowsOf(usageFilterChoices)[cursor];
+    if (!row) return;
+    set({ usageFilterCursor: cursor });
+    toggleUsageFilter(row.group, row.id);
+  },
+  keepOnlyUsageFilterAtCursor() {
+    const { usageFilterChoices, usageFilterCursor, keepOnlyUsageFilter } = get();
+    const row = _filterRowsOf(usageFilterChoices)[usageFilterCursor];
+    if (row) keepOnlyUsageFilter(row.group, row.id);
+  },
+  closeUsageFilter() {
+    set({ isUsageFilterOpen: false });
+  },
+  toggleUsageFilter(group, id) {
+    set((state) => ({ usageFilter: toggledFilter(state.usageFilter, group, id) }));
+  },
+  keepOnlyUsageFilter(group, id) {
+    const ids = get().usageFilterChoices[group].map((choice) => choice.id);
+    set((state) => ({ usageFilter: onlyFilter(state.usageFilter, group, id, ids) }));
+  },
+  clearUsageFilter() {
+    set({ usageFilter: NoUsageFilter });
   },
   async refreshUsage() {
-    const { machines, machineUsage, readMachineUsage } = get();
-    const due = machines.filter((machine) => machine.canRead && !ownValue(machineUsage, machine.id)?.isReading);
-    await Promise.all(due.map(readMachineUsage));
+    const { usagePage, refreshLimits, refreshTokens } = get();
+    if (usagePage === UsagePage.limits) await refreshLimits();
+    else await refreshTokens();
   },
   tickUsage() {
     set({ usageNow: Date.now() });
   },
-  async readMachineUsage(machine) {
-    const machineId = machine.id;
-    const usageRepository = container.get('IUsageRepository');
-    const seats = ownValue(get().machineUsage, machineId)?.seats ?? [];
-    const reading = { seats, readAt: Date.now(), isOutdated: false, problem: undefined };
-    function finish(result: Partial<MachineUsage>) {
-      const usageNow = Date.now();
-      const usage = { ...reading, ...result, isReading: false };
-      set((state) => ({ usageNow, machineUsage: { ...state.machineUsage, [machineId]: usage } }));
-    }
-    set((state) => ({ machineUsage: { ...state.machineUsage, [machineId]: { ...reading, isReading: true } } }));
-    try {
-      finish({ seats: _withLastGood(seats, await usageRepository.readMachine(machineId)) });
-    } catch (error) {
-      const problem = error instanceof Error ? error.message : String(error);
-      finish({ seats: _withFailure(seats, problem), isOutdated: isOlderFavoError(error), problem });
-    }
-  },
 });
 
-function _isDue(machine: Machine, machineUsage: Record<string, MachineUsage>) {
-  const usage = ownValue(machineUsage, machine.id);
-  return machine.canRead && (!usage || Date.now() - usage.readAt >= UsageFreshForMs);
+function _filterRowsOf(choices: UsageFilterChoices) {
+  return UsageFilterGroups.flatMap((group) => choices[group].map(({ id }) => ({ group, id })));
 }
 
-function _sameSeat(left: SeatUsageView, right: SeatUsageView) {
-  return left.account === right.account && left.provider === right.provider;
-}
-
-function _withLastGood(previous: SeatUsageView[], next: SeatUsageView[]) {
-  return next.map((seat) => {
-    const last = previous.find((candidate) => _sameSeat(candidate, seat));
-    const identity = seat.identity ?? last?.identity;
-    const plan = seat.plan ?? last?.plan;
-    return { ...seat, identity, plan, usage: keepLastGoodUsage(last?.usage, seat.usage) };
-  });
-}
-
-function _withFailure(previous: SeatUsageView[], message: string) {
-  const failure = unavailableUsage(new Date().toISOString(), UsageUnavailableReason.probeFailed, message);
-  return previous
-    .filter((seat) => seat.usage.windows.length > 0)
-    .map((seat) => ({ ...seat, usage: keepLastGoodUsage(seat.usage, failure) }));
-}
-
-function _seatsOf(machines: Machine[], machineUsage: Record<string, MachineUsage>) {
-  return machines.flatMap((machine) =>
-    (ownValue(machineUsage, machine.id)?.seats ?? []).map((seat) => ({
-      ...seat,
-      key: `${machine.id}/${seat.account}/${seat.provider}`,
-      machineName: machine.name,
-    }))
-  );
-}
-
-function _machineLineOf(machine: Machine, usage: MachineUsage | undefined, now: number): UsageMachineLine {
-  const { id, name } = machine;
-  if (machine.presence === MachinePresence.outdated || usage?.isOutdated) {
-    return { id, name, label: 'older favo', isOld: true };
+function _choicesOf(
+  machines: Machine[],
+  accounts: Account[],
+  machineLimits: Record<string, MachineLimits>,
+  machineTokens: Record<string, MachineTokens>,
+  filter: UsageFilter
+): UsageFilterChoices {
+  const names = new Map<string, string>();
+  const providers = new Set<string>();
+  for (const account of accounts) {
+    names.set(account.name, account.displayName);
+    for (const seat of account.visibleSeats) providers.add(seat.provider);
   }
-  if (usage?.isReading) return { id, name, label: 'reading…', isOld: false };
-  if (usage?.problem) return { id, name, label: 'could not read', isOld: true };
-  if (!machine.isOnline || !usage) return { id, name, label: machine.presenceLabel, isOld: true };
-  const newest = usage.seats
-    .map((seat) => seat.usage.checkedAt)
-    .toSorted()
-    .at(-1);
-  if (!newest) return { id, name, label: 'no seats signed in', isOld: false };
-  return { id, name, label: readingAgeOf(newest, now), isOld: now - Date.parse(newest) >= UsageFreshForMs };
+  for (const { seats } of Object.values(machineLimits)) {
+    for (const seat of seats) {
+      if (!names.has(seat.account)) names.set(seat.account, seat.displayName);
+      providers.add(seat.provider);
+    }
+  }
+  for (const { usage } of Object.values(machineTokens)) {
+    for (const row of usage?.rows ?? []) {
+      if (!names.has(row.account)) names.set(row.account, row.account);
+      providers.add(row.provider);
+    }
+  }
+  return {
+    machines: machines.map((machine) => ({
+      id: machine.id,
+      name: machine.name,
+      isOn: !filter.machines.includes(machine.id),
+      note: machine.isOnline ? undefined : machine.presenceLabel,
+    })),
+    accounts: [...names].map(([id, name]) => ({ id, name, isOn: !filter.accounts.includes(id) })),
+    providers: ProviderOrder.filter((id) => providers.has(id)).map((id) => ({
+      id,
+      name: Providers[id].label,
+      isOn: !filter.providers.includes(id),
+    })),
+  };
 }

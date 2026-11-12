@@ -9,8 +9,8 @@ import type {
   HookView,
   ProviderVersionView,
   SeatInspection,
+  SeatLimitsView,
   SeatStatus,
-  SeatUsageView,
   SeatView,
   ThreadView,
 } from '@favo/contracts/rpc/views';
@@ -20,6 +20,9 @@ import type { DomainError } from '@favo/domain/shared/domain-error';
 import type { TerminalPlan } from '@favo/domain/terminal/terminal-plan';
 import { BuiltInThemes } from '@favo/domain/themes/built-in-themes';
 import { type Theme, ThemeSource } from '@favo/domain/themes/theme';
+import type { TokenPrices } from '@favo/domain/usage/token-prices';
+import type { MachineTokenUsage, TokenUsageRow } from '@favo/domain/usage/token-usage';
+import { DefaultUsageView, type UsageView } from '@favo/domain/usage/usage-view';
 
 function seatOf(home: string, account: string, provider: ProviderId, overrides: Partial<SeatView> = {}): SeatView {
   const spec = Providers[provider];
@@ -91,7 +94,7 @@ function seedSeatStatuses(): Record<string, SeatStatus> {
   };
 }
 
-function seedSeatUsage(): Record<string, SeatUsageView[]> {
+function seedSeatLimits(): Record<string, SeatLimitsView[]> {
   const checkedAt = new Date().toISOString();
   const inMinutes = (minutes: number) => new Date(Date.now() + (minutes + 0.5) * 60_000).toISOString();
   const session = (usedPercent: number, minutes: number) => ({
@@ -157,6 +160,59 @@ function seedSeatUsage(): Record<string, SeatUsageView[]> {
       },
     ],
     devbox: [personalClaude],
+  };
+}
+
+const Million = 1_000_000;
+const HourMs = 3_600_000;
+
+export function tokenRowOf(
+  hoursAgo: number,
+  seat: Pick<TokenUsageRow, 'account' | 'provider' | 'model'>,
+  millions: [input: number, cacheRead: number, cacheWrite: number, output: number],
+  sessions: number
+): TokenUsageRow {
+  const [input, cacheRead, cacheWrite, output] = millions.map((count) => Math.round(count * Million));
+  const hour = new Date(Math.floor(Date.now() / HourMs) * HourMs - hoursAgo * HourMs).toISOString();
+  return { hour, ...seat, input: input!, cacheRead: cacheRead!, cacheWrite: cacheWrite!, output: output!, sessions };
+}
+
+export const TokenSeats = {
+  personalClaude: { account: 'personal', provider: ProviderId.claude, model: 'claude-opus-5-5' },
+  workClaude: { account: 'work', provider: ProviderId.claude, model: 'claude-fable-5-2' },
+  personalCodex: { account: 'personal', provider: ProviderId.codex, model: 'gpt-6-astra' },
+};
+
+function seedTokenUsage(): Record<string, MachineTokenUsage> {
+  const readAt = new Date(Date.now() - HourMs).toISOString();
+  return {
+    local: {
+      readAt,
+      skippedRecords: 0,
+      rows: [
+        tokenRowOf(40 * 24, TokenSeats.personalClaude, [1, 390, 6, 3], 1),
+        tokenRowOf(50, TokenSeats.personalCodex, [5, 150, 0, 2], 4),
+        tokenRowOf(26, TokenSeats.workClaude, [1, 200, 8, 1], 2),
+        tokenRowOf(3, TokenSeats.personalClaude, [2, 600, 20, 3], 3),
+      ],
+    },
+    devbox: {
+      readAt,
+      skippedRecords: 0,
+      rows: [tokenRowOf(5 * 24, TokenSeats.personalClaude, [1, 100, 5, 2], 1)],
+    },
+  };
+}
+
+function seedTokenPrices(): TokenPrices {
+  return {
+    source: 'litellm',
+    fetchedAt: new Date(Date.now() - HourMs).toISOString(),
+    rates: {
+      'claude-opus-5-5': { input: 0.000005, output: 0.000025, cacheRead: 0.0000005, cacheWrite: 0.00000625 },
+      'claude-fable-5-2': { input: 0.00001, output: 0.00005, cacheRead: 0.000001, cacheWrite: 0.0000125 },
+      'gpt-6-astra': { input: 0.000002, output: 0.00001, cacheRead: 0.0000002, cacheWrite: 0.000002 },
+    },
   };
 }
 
@@ -310,10 +366,20 @@ export const mockDb = {
   machineStatuses: seedMachineStatuses(),
   accounts: seedAccounts(),
   seatStatuses: seedSeatStatuses(),
-  seatUsage: seedSeatUsage(),
-  usageFailures: {} as Record<string, Error>,
-  usageReads: [] as string[],
-  usageHold: undefined as Promise<void> | undefined,
+  seatLimits: seedSeatLimits(),
+  limitFailures: {} as Record<string, Error>,
+  limitReads: [] as string[],
+  limitsHold: undefined as Promise<void> | undefined,
+  tokenUsage: seedTokenUsage(),
+  keptTokenUsage: {} as Record<string, MachineTokenUsage>,
+  tokenFailures: {} as Record<string, Error>,
+  tokenReads: [] as string[],
+  tokenHold: undefined as Promise<void> | undefined,
+  tokenKeepFailure: undefined as Error | undefined,
+  priceHold: undefined as Promise<void> | undefined,
+  tokenPrices: seedTokenPrices(),
+  priceReads: [] as string[],
+  usageView: DefaultUsageView as UsageView,
   providerVersions: seedProviderVersions(),
   providerVersionFailures: {} as Record<string, Error>,
   providerVersionReads: [] as string[],
@@ -349,10 +415,20 @@ export const mockDb = {
     this.machineStatuses = seedMachineStatuses();
     this.accounts = seedAccounts();
     this.seatStatuses = seedSeatStatuses();
-    this.seatUsage = seedSeatUsage();
-    this.usageFailures = {};
-    this.usageReads = [];
-    this.usageHold = undefined;
+    this.seatLimits = seedSeatLimits();
+    this.limitFailures = {};
+    this.limitReads = [];
+    this.limitsHold = undefined;
+    this.tokenUsage = seedTokenUsage();
+    this.keptTokenUsage = {};
+    this.tokenFailures = {};
+    this.tokenReads = [];
+    this.tokenHold = undefined;
+    this.tokenKeepFailure = undefined;
+    this.priceHold = undefined;
+    this.tokenPrices = seedTokenPrices();
+    this.priceReads = [];
+    this.usageView = DefaultUsageView;
     this.providerVersions = seedProviderVersions();
     this.providerVersionFailures = {};
     this.providerVersionReads = [];

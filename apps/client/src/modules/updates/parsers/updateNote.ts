@@ -1,5 +1,5 @@
 import { type UpdateRecord, UpdateState } from '@favo/domain/updates/update-outcome';
-import { formatDuration } from '@favo/domain/usage/seat-usage';
+import { formatDuration } from '@favo/domain/usage/seat-limits';
 
 const Minute = 60_000;
 

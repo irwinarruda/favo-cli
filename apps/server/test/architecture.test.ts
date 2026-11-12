@@ -12,6 +12,7 @@ const ModuleLevels: Record<string, number> = {
   accounts: 3,
   machines: 4,
   desktop: 4,
+  usage: 4,
   terminal: 5,
 };
 const StaticImport = /^\s*(?:import|export)(\s+type)?\s+(?:[\w$*{},\s]*?from\s*)?['"]([^'"]+)['"]/gm;
@@ -165,7 +166,7 @@ describe('server', () => {
 
 describe('client', () => {
   const isApplication = (file: string) => /\/app\//.test(file) || file.startsWith('shared/app/');
-  const isView = (file: string) => /\/screens\//.test(file) || file.startsWith('shared/components/');
+  const isView = (file: string) => /\/(screens|components)\//.test(file);
 
   it('keeps the application layer free of the view', () => {
     const bad = offenders('apps/client/src', (file, specifier) => {

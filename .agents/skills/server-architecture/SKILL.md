@@ -25,7 +25,7 @@ src/
     utils/        stateless helpers
 ```
 
-Modules and levels: `system` (1), `providers`, `themes`, `directories` and `herdr` (2), `accounts` (3), `machines` and `desktop` (4), `terminal` (5). A module imports only lower levels.
+Modules and levels: `system` (1), `providers`, `themes`, `directories` and `herdr` (2), `accounts` (3), `machines`, `desktop` and `usage` (4), `terminal` (5). A module imports only lower levels.
 
 ## Import rule
 

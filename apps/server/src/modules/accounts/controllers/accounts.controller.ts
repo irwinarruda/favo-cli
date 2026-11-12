@@ -10,7 +10,6 @@ import { uninstallHooks } from '@favo/contracts/rpc/hooks/uninstall-hooks';
 import { getSeatStatus } from '@favo/contracts/rpc/seats/get-seat-status';
 import { inspectSeat } from '@favo/contracts/rpc/seats/inspect-seat';
 import { provisionSeat } from '@favo/contracts/rpc/seats/provision-seat';
-import { readUsage } from '@favo/contracts/rpc/seats/read-usage';
 import { repairSeats } from '@favo/contracts/rpc/seats/repair-seats';
 import { listThreads } from '@favo/contracts/rpc/threads/list-threads';
 import { recordThread } from '@favo/contracts/rpc/threads/record-thread';
@@ -19,14 +18,12 @@ import type { AccountsService } from '@/modules/accounts/services/accounts.servi
 import type { HooksService } from '@/modules/accounts/services/hooks.service';
 import type { SeatsService } from '@/modules/accounts/services/seats.service';
 import type { ThreadsService } from '@/modules/accounts/services/threads.service';
-import type { UsageService } from '@/modules/accounts/services/usage.service';
 import type { RpcRouter } from '@/shared/rpc/rpc-router';
 
 export function registerAccountsController(
   router: RpcRouter,
   accounts: AccountsService,
   seats: SeatsService,
-  usage: UsageService,
   threads: ThreadsService,
   hooks: HooksService
 ) {
@@ -43,7 +40,6 @@ export function registerAccountsController(
     await hooks.refresh();
     return repairs;
   });
-  router.handle(readUsage, () => usage.read());
   router.handle(listThreads, (params) => threads.list(params));
   router.handle(recordThread, (params) => threads.record(params));
   router.handle(reportThread, async ({ provider, id }) => {

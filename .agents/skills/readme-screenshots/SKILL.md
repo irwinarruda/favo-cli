@@ -58,6 +58,10 @@ Demo data: four machines (macbook, devbox, studio, pi offline), six accounts, tw
 
 A theme preview needs `previewThemeId`, or Ghostty's title bar keeps the saved theme's color. See `favo-themes`.
 
+## A picture of a command
+
+A command's output is a picture too. `CommandScenes` in `scripts/screenshots.ts` maps a name to the arguments, and `scripts/cli-scene.ts` runs the real `favo` with them in the same Ghostty, on a temporary home that `scripts/usage-fixture.ts` fills with made-up session logs. Nothing is read from your own home. See `favo-usage-tokens-cli`.
+
 ## Before you say it is done
 
 Read each changed image, and check:
