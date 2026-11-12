@@ -14,6 +14,9 @@ import {
   SkipFavoFlag,
   UpdateRunningFlag,
 } from '@favo/domain/terminal/terminal-plan';
+import { UsagePage } from '@favo/domain/usage/usage-view';
+
+const MaximumDays = 3650;
 
 export const CommandKind = {
   tui: 'tui',
@@ -66,6 +69,11 @@ export type Command = {
   isHeld?: boolean;
   providers?: ProviderId[];
   isRunningIncluded?: boolean;
+  usagePage?: UsagePage;
+  days?: number;
+  isAllTime?: boolean;
+  machines?: string[];
+  accounts?: string[];
 };
 
 export function parseCommand(rawArgv: string[]): Command {
@@ -84,7 +92,14 @@ export function parseCommand(rawArgv: string[]): Command {
     case 'ls':
       return { ...base, kind: CommandKind.list };
     case 'usage':
-      return { ...base, kind: CommandKind.usage };
+      return {
+        ...base,
+        kind: CommandKind.usage,
+        ...usageOf(flags),
+        machines: flags.machines,
+        accounts: flags.accounts,
+        providers: flags.providers,
+      };
     case 'add':
       return { ...base, kind: CommandKind.add, account: required(second, 'favo add <account>') };
     case 'rename':
@@ -161,6 +176,26 @@ export function parseCommand(rawArgv: string[]): Command {
   }
 }
 
+function usageOf(flags: { pages: UsagePage[]; days?: string; isAllTime: boolean }) {
+  const { pages, isAllTime } = flags;
+  assertDomain(pages.length <= 1, DomainErrorCode.invalidParams, 'Pick one of --limits, --tokens and --cost.');
+  const usagePage = pages[0] ?? UsagePage.limits;
+  const hasPeriod = flags.days !== undefined || isAllTime;
+  assertDomain(
+    usagePage !== UsagePage.limits || !hasPeriod,
+    DomainErrorCode.invalidParams,
+    'Limits have no period. --days and --all go with --tokens or --cost.'
+  );
+  assertDomain(flags.days === undefined || !isAllTime, DomainErrorCode.invalidParams, 'Pick one of --days and --all.');
+  const days = flags.days === undefined ? undefined : Number(flags.days);
+  assertDomain(
+    days === undefined || (Number.isInteger(days) && days > 0 && days <= MaximumDays),
+    DomainErrorCode.invalidParams,
+    'Usage: --days <a number of days>, such as --days 7'
+  );
+  return { usagePage, days, isAllTime };
+}
+
 function decodedArgv(argv: string[]) {
   if (argv[0] !== EncodedArgumentsFlag) return argv;
   assertDomain(argv.length === 2, DomainErrorCode.invalidParams, `Usage: favo ${EncodedArgumentsFlag} <base64url>`);
@@ -215,6 +250,11 @@ function readArguments(argv: string[]) {
     isHeld: false,
     isRunningIncluded: false,
     providers: [] as ProviderId[],
+    pages: [] as UsagePage[],
+    isAllTime: false,
+    days: undefined as string | undefined,
+    machines: [] as string[],
+    accounts: [] as string[],
     machine: undefined as string | undefined,
     name: undefined as string | undefined,
     directory: undefined as string | undefined,
@@ -234,8 +274,16 @@ function readArguments(argv: string[]) {
     else if (word === UpdateRunningFlag) flags.isRunningIncluded = true;
     else if (word === ProviderFlag) flags.providers.push(providerIdOf(argv[++index]));
     else if (word === '--stdio') continue;
-    else if (word === '--machine' || word === '-m') flags.machine = required(argv[++index], '--machine <machine>');
-    else if (word === '--name') flags.name = required(argv[++index], '--name <name>');
+    else if (word === '--limits') flags.pages.push(UsagePage.limits);
+    else if (word === '--tokens') flags.pages.push(UsagePage.tokens);
+    else if (word === '--cost') flags.pages.push(UsagePage.cost);
+    else if (word === '--all') flags.isAllTime = true;
+    else if (word === '--days') flags.days = required(argv[++index], '--days <days>');
+    else if (word === '--account') flags.accounts.push(required(argv[++index], '--account <account>'));
+    else if (word === '--machine' || word === '-m') {
+      flags.machine = required(argv[++index], '--machine <machine>');
+      flags.machines.push(flags.machine);
+    } else if (word === '--name') flags.name = required(argv[++index], '--name <name>');
     else if (word === '--dir') flags.directory = required(argv[++index], '--dir <folder>');
     else if (word.startsWith('-')) throw new DomainError(DomainErrorCode.invalidParams, `Unknown flag "${word}".`);
     else words.push(word);

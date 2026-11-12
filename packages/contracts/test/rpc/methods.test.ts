@@ -14,7 +14,7 @@ import { refreshHooks } from '#contracts/rpc/hooks/refresh-hooks';
 import { uninstallHooks } from '#contracts/rpc/hooks/uninstall-hooks';
 import { addMachine } from '#contracts/rpc/machines/add-machine';
 import { getSeatStatus } from '#contracts/rpc/seats/get-seat-status';
-import { readUsage } from '#contracts/rpc/seats/read-usage';
+import { readLimits } from '#contracts/rpc/seats/read-limits';
 import { ping } from '#contracts/rpc/system/ping';
 import { planTerminal } from '#contracts/rpc/terminal/plan-terminal';
 import { listThemes } from '#contracts/rpc/themes/list-themes';
@@ -28,6 +28,12 @@ import { planFavoUpdate } from '#contracts/rpc/updates/plan-favo-update';
 import { planUpdate } from '#contracts/rpc/updates/plan-update';
 import { recordProviderUpdate } from '#contracts/rpc/updates/record-provider-update';
 import { startProviderUpdates } from '#contracts/rpc/updates/start-provider-updates';
+import { keepTokenUsage } from '#contracts/rpc/usage/keep-token-usage';
+import { readKeptTokenUsage } from '#contracts/rpc/usage/read-kept-token-usage';
+import { readTokenPrices } from '#contracts/rpc/usage/read-token-prices';
+import { readTokenUsage } from '#contracts/rpc/usage/read-token-usage';
+import { readUsageView } from '#contracts/rpc/usage/read-usage-view';
+import { saveUsageView } from '#contracts/rpc/usage/save-usage-view';
 
 const seat = {
   account: 'work',
@@ -133,20 +139,77 @@ describe('usage', () => {
   const usage = { checkedAt: '2026-11-01T12:00:00.000Z', windows: [window] };
 
   it('is forwarded to the machine, because the seats live there', () => {
-    expect(readUsage.routing).toBe('machine');
+    expect(readLimits.routing).toBe('machine');
   });
   it('takes no parameters, and refuses a stray one', () => {
-    expect(readUsage.params.safeParse({}).success).toBe(true);
-    expect(readUsage.params.safeParse({ account: 'work' }).success).toBe(false);
+    expect(readLimits.params.safeParse({}).success).toBe(true);
+    expect(readLimits.params.safeParse({ account: 'work' }).success).toBe(false);
   });
   it('parses a reading and refuses a window of an unknown kind', () => {
-    expect(readUsage.result.safeParse([{ ...reading, usage }]).success).toBe(true);
+    expect(readLimits.result.safeParse([{ ...reading, usage }]).success).toBe(true);
     const unknownKind = { ...usage, windows: [{ ...window, kind: 'daily' }] };
-    expect(readUsage.result.safeParse([{ ...reading, usage: unknownKind }]).success).toBe(false);
+    expect(readLimits.result.safeParse([{ ...reading, usage: unknownKind }]).success).toBe(false);
   });
   it('accepts a seat that could not be read, with no bars', () => {
     const failed = { checkedAt: usage.checkedAt, windows: [], unavailable: { reason: 'probeFailed' } };
-    expect(readUsage.result.safeParse([{ ...reading, usage: failed }]).success).toBe(true);
+    expect(readLimits.result.safeParse([{ ...reading, usage: failed }]).success).toBe(true);
+  });
+});
+
+describe('token usage', () => {
+  const row = {
+    hour: '2026-11-10T14:00:00.000Z',
+    account: 'work',
+    provider: 'claude',
+    model: 'claude-test-1',
+    input: 10,
+    cacheRead: 2000,
+    cacheWrite: 300,
+    output: 40,
+    sessions: 1,
+  };
+  const usage = { readAt: '2026-11-12T12:00:00.000Z', rows: [row], skippedRecords: 0 };
+
+  it('is counted on the machine that holds the logs, and kept and priced on this one', () => {
+    expect(readTokenUsage.routing).toBe('machine');
+    expect(keepTokenUsage.routing).toBe('hub');
+    expect(readKeptTokenUsage.routing).toBe('hub');
+    expect(readTokenPrices.routing).toBe('hub');
+  });
+  it('says whether to read the logs again, and refuses a stray parameter', () => {
+    expect(readTokenUsage.params.safeParse({ isFresh: true }).success).toBe(true);
+    expect(readTokenUsage.params.safeParse({}).success).toBe(false);
+    expect(readTokenUsage.params.safeParse({ isFresh: true, account: 'work' }).success).toBe(false);
+  });
+  it('parses a record, one never read, and refuses a row that is not counts', () => {
+    expect(readTokenUsage.result.safeParse(usage).success).toBe(true);
+    expect(readTokenUsage.result.safeParse({ rows: [], skippedRecords: 0 }).success).toBe(true);
+    expect(readTokenUsage.result.safeParse({ ...usage, rows: [{ ...row, output: 1.5 }] }).success).toBe(false);
+    expect(readTokenUsage.result.safeParse({ ...usage, rows: [{ ...row, text: 'hello' }] }).success).toBe(false);
+    expect(keepTokenUsage.params.safeParse({ id: 'devbox', usage }).success).toBe(true);
+    expect(keepTokenUsage.params.safeParse({ usage }).success).toBe(false);
+  });
+  it('asks for the prices of some models, and parses rates or none at all', () => {
+    const rate = { input: 0.000003, output: 0.000015, cacheRead: 0.0000003, cacheWrite: 0.00000375 };
+    expect(readTokenPrices.params.safeParse({ models: ['claude-test-1'], isFresh: false }).success).toBe(true);
+    expect(readTokenPrices.params.safeParse({ models: 'claude-test-1', isFresh: false }).success).toBe(false);
+    expect(readTokenPrices.result.safeParse({ source: 'litellm', rates: {} }).success).toBe(true);
+    const priced = { source: 'litellm', fetchedAt: usage.readAt, rates: { 'claude-test-1': rate } };
+    expect(readTokenPrices.result.safeParse(priced).success).toBe(true);
+    expect(readTokenPrices.result.safeParse({ ...priced, rates: { x: { ...rate, input: -1 } } }).success).toBe(false);
+  });
+});
+
+describe('the usage view', () => {
+  it('lives on the computer you are at', () => {
+    expect(readUsageView.routing).toBe('hub');
+    expect(saveUsageView.routing).toBe('hub');
+  });
+  it('is one of three pages and one of five periods', () => {
+    expect(saveUsageView.params.safeParse({ page: 'cost', period: '24h' }).success).toBe(true);
+    expect(saveUsageView.params.safeParse({ page: 'cost', period: '2d' }).success).toBe(false);
+    expect(saveUsageView.params.safeParse({ page: 'graphs', period: '7d' }).success).toBe(false);
+    expect(readUsageView.result.safeParse({ page: 'limits', period: 'all' }).success).toBe(true);
   });
 });
 

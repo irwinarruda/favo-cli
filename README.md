@@ -106,6 +106,22 @@ Your `launchArgs` come back by themselves. A one-off option does not, so pass it
 
 To know which thread you are in, favo adds one small hook to your provider config, and only once you ask. [The reference](#reference) spells out exactly what it does. Run Herdr? A restart brings each seat back on the right account, in the same thread.
 
+### What you have left, and what you used
+
+Press `u` for the limits of every seat on every machine, and when each comes back. Press `t` for the tokens those seats used, by provider, account, machine and model, over the last day, week, month, quarter or all time. Press `c` for the same in dollars, at API list prices. `f` narrows any of the three to the machines and accounts you pick.
+
+<p align="center">
+  <img src="docs/assets/favo-usage-tokens.png" alt="favo's Usage screen on the Tokens page, showing 12.4 billion tokens over 30 days split by provider, account, machine and model" width="760">
+</p>
+
+```sh
+favo usage                    # what every seat has left
+favo usage --tokens           # what every seat used
+favo usage --cost --days 7    # the same in dollars, for the last week
+```
+
+favo counts from the session logs Claude Code and Codex already keep, reading only numbers, and keeps its own count, so a month Claude Code has deleted is still there.
+
 ### A TUI you will want to leave open
 
 See every machine, account and login, spot what needs signing in, and press `enter` to launch. Prefer scripts? Everything is a command too, and `favo list --json` gives you the same view as data.
@@ -185,13 +201,13 @@ Inside a cell, an item is either shared or private. Shared items are a named lis
 No. favo starts the official CLI with the right folder set, then gets out of the way. Your requests go straight from that CLI to its provider, and you always choose which account runs.
 
 **Can favo see my tokens?**
-favo never reads them. Logins run each provider's own command, and credentials stay wherever that provider keeps them. To tell whether the Claude app is signed in, favo reads two settings from the app's own `config.json`, whether it is signed in and which account, and the account id from Claude Code's `.claude.json`. It keeps nothing else from either file, and the token in `config.json` is encrypted with your system's key. One thing to watch: settings are shared, so an API key you put in `settings.json` or `config.toml` is visible to every account.
+favo never reads them. (These are login tokens. The tokens `favo usage --tokens` counts are a different thing: numbers in the session logs, read without the text around them.) Logins run each provider's own command, and credentials stay wherever that provider keeps them. To tell whether the Claude app is signed in, favo reads two settings from the app's own `config.json`, whether it is signed in and which account, and the account id from Claude Code's `.claude.json`. It keeps nothing else from either file, and the token in `config.json` is encrypted with your system's key. One thing to watch: settings are shared, so an API key you put in `settings.json` or `config.toml` is visible to every account.
 
 **What happens to my existing config?**
 It stays where it is and becomes your `personal` account. Shared items in other accounts are links to it, so editing one edits your original. favo changes it in one case, and only when you ask: `favo hooks install` adds its own hook, leaves yours alone, and `favo hooks uninstall` takes it out again.
 
 **Does favo phone home?**
-There is no telemetry, and favo never checks for updates by itself. Its own network use is downloading its release from GitHub: on the npm package's first run, and when it installs itself on another machine. Reaching your machines goes over your own ssh. `favo update` runs your package manager, and with `--providers` the providers' own update commands, only when you run it. The versions in the comb come from the binaries on each machine, never from the internet.
+There is no telemetry, and favo never checks for updates by itself. Its own network use is two downloads from GitHub. One is its release: on the npm package's first run, and when it installs itself on another machine. The other is LiteLLM's public price table, a plain file fetched at most once a day, and only when you open the Tokens or Cost page or run `favo usage --tokens` or `--cost`. Nothing about you or your usage is sent with it. Reaching your machines goes over your own ssh. `favo update` runs your package manager, and with `--providers` the providers' own update commands, only when you run it. The versions in the comb come from the binaries on each machine, never from the internet.
 
 **Why not a shell alias with `CLAUDE_CONFIG_DIR`?**
 That gives you a second login, and it's how many of us started. The new folder starts empty, though, so you maintain your setup twice, and it stops at one machine and one provider. favo keeps the setup shared and does the same for all four providers, across your computers.
@@ -235,6 +251,9 @@ favo hooks status            # is that working, seat by seat
 favo hooks uninstall         # take favo's hook out again
 favo list                    # every machine, account and login
 favo usage                   # what every seat has left, and when it comes back
+favo usage --tokens          # what every seat used, by provider, account and machine
+favo usage --cost            # the same, in dollars at API list prices
+favo usage --tokens --json   # every day of it, for a script or a site
 favo update                  # favo, on every machine
 favo update --providers      # favo, then the provider CLIs, on every machine
 favo rename work client      # a new name, on this machine
@@ -248,7 +267,13 @@ favo theme tokyo-night       # pick a theme
 
 Providers are `claude`, `codex`, `agy` and `opencode`. Most commands take `--machine <machine>` to run on another computer. When favo starts a provider, favo's own options go before the provider, and everything after the account goes to the provider, flags and prompt included. `favo --help` lists the rest.
 
-`favo usage` and the `u` screen ask Claude Code and Codex through their own commands, so no token is read and no thread starts. OpenCode and Antigravity show no limits for now, because neither has a source that works without a token. favo reads them once when the TUI opens, so the numbers are ready when you press `u`, and `favo usage` reads them when you run it. The bars show what is left: the thick part is yours now, the thinner part is what the next reset gives back, and the tall mark is how much of the window's time is left, so a bar that stops short of it is spending too fast.
+`favo usage` and the `u` screen have three pages: Limits, Tokens and Cost. Limits is the default, and `--limits`, `--tokens` and `--cost` pick one. Every page takes `--machine`, `--account` and `--provider`, each as many times as you like, and `--json`. In the TUI, `l` `t` `c` change the page and `f` opens the same three filters.
+
+**Limits** asks Claude Code and Codex through their own commands, so no token is read and no thread starts. OpenCode and Antigravity show no limits for now, because neither has a source that works without a token. favo reads them once when the TUI opens, so the numbers are ready when you press `u`, and `favo usage` reads them when you run it. The bars show what is left: the thick part is yours now, the thinner part is what the next reset gives back, and the tall mark is how much of the window's time is left, so a bar that stops short of it is spending too fast.
+
+**Tokens** counts what each seat used, from the session logs Claude Code and Codex already keep on each machine. favo reads only numbers, times, model names and ids from them, never the text of a message. Claude Code deletes its logs after 30 days, so favo keeps its own count by hour in `~/.favo/usage` and only ever raises it. It counts once a day when the TUI opens, and again when you open the page or run the command. The same account on two machines is counted on both, because tokens are work done. OpenCode and Antigravity are not counted yet. `--days <n>` sets the period, 30 when left out, and `--all` is everything favo has kept. In the TUI, `1` to `5` or the arrows pick 24 hours, 7, 30 or 90 days, or all.
+
+**Cost** is the same count in dollars: what the API would charge for those tokens at list prices, not what your subscription bills you. The prices are LiteLLM's public table. Every model is priced at its base rate, with no long-context or fast-mode tiers. A model the table does not know is counted in tokens and left out of every dollar.
 
 `favo rm` keeps the cell in `~/.favo/trash`, login included, until you delete that folder yourself. `favo adopt` refuses a folder inside `~/.favo` or a provider's base folder.
 
@@ -262,7 +287,7 @@ Providers are `claude`, `codex`, `agy` and `opencode`. Most commands take `--mac
 | `b`                 | go back to a thread                 |
 | `s` / `o`           | sign in / sign out                  |
 | `c`                 | copy its config path                |
-| `u`                 | see what every seat has left        |
+| `u`                 | limits, tokens and cost             |
 | `v`                 | see every provider CLI version      |
 | `d`                 | choose the folder it launches in    |
 | `a`                 | add an account                      |

@@ -11,6 +11,14 @@ Accounts
   favo list [--json]                 every machine, account and login
   favo usage [--json]                what every seat has left, and when it
                                      comes back (Claude Code, Codex)
+  favo usage --tokens                what every seat used, counted from the
+                                     session logs on each machine
+  favo usage --cost                  the same in dollars, at API list prices
+                                     (base rates, not your subscription bill)
+      --days <n> | --all             the period: 30 days, or all favo has kept
+      --machine, --account, --provider <name>
+                                     only those, each as often as you like
+                                     --limits is the default page
   favo add <account>                 add a cell
   favo rename <account> <new name>   rename a cell, its folder stays put
   favo rm <account>                  move a cell to the trash

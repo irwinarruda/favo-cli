@@ -47,6 +47,7 @@ src/
   modules/<m>/
     app/       entities/ enums/ repositories/ gateways/ services/
     parsers/   pure transformations owned by the module
+    components/ views shared by two screens of the module, as usage's Tokens and Cost
     screens/<ScreenName>/index.tsx, with private siblings beside it
   shared/      app/, components/, container/, error/, stores/, theme/
 ```

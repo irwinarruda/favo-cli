@@ -1,6 +1,6 @@
 import { LoginState } from '@favo/contracts/rpc/views';
 import type { ProviderId } from '@favo/domain/providers/provider';
-import type { SeatUsage } from '@favo/domain/usage/seat-usage';
+import type { SeatLimits } from '@favo/domain/usage/seat-limits';
 import {
   type FoundThread,
   ProviderCli,
@@ -16,8 +16,8 @@ export class ScriptedProviderCli extends ProviderCli {
   isolation: string[] = [];
   foundThreads: FoundThread[] = [];
   readonly threadSearches: ThreadSearch[] = [];
-  usageReading?: Omit<SeatUsage, 'checkedAt'> | Error;
-  readonly usageSessions: ProviderSession[] = [];
+  limitsReading?: Omit<SeatLimits, 'checkedAt'> | Error;
+  readonly limitsSessions: ProviderSession[] = [];
   updateOff?: string;
   updateOffUnless?: (search: UpdateSwitchSearch) => string | undefined;
   currentReads = 0;
@@ -35,14 +35,14 @@ export class ScriptedProviderCli extends ProviderCli {
     return this.login;
   }
 
-  override async usage(session: ProviderSession, checkedAt: string) {
-    this.usageSessions.push(session);
+  override async limits(session: ProviderSession, checkedAt: string) {
+    this.limitsSessions.push(session);
     this.currentReads++;
     this.mostReadsAtOnce = Math.max(this.mostReadsAtOnce, this.currentReads);
     await Bun.sleep(0);
     this.currentReads--;
-    if (this.usageReading instanceof Error) throw this.usageReading;
-    return this.usageReading ? { checkedAt, ...this.usageReading } : super.usage(session, checkedAt);
+    if (this.limitsReading instanceof Error) throw this.limitsReading;
+    return this.limitsReading ? { checkedAt, ...this.limitsReading } : super.limits(session, checkedAt);
   }
 
   override async recentThreads(search: ThreadSearch) {

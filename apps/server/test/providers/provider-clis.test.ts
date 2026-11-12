@@ -67,7 +67,7 @@ describe('Claude Code usage', () => {
   async function read(response: unknown) {
     const processes = new ScriptedProcessRunner();
     processes.converse(server, [answerLine(response)]);
-    return new ClaudeProviderCli(processes).usage(session, CheckedAt);
+    return new ClaudeProviderCli(processes).limits(session, CheckedAt);
   }
 
   it('reads the session and the week, and ignores every codenamed field', async () => {
@@ -150,7 +150,7 @@ describe('Claude Code usage', () => {
   it('fails softly and kills a process that never answers', async () => {
     const processes = new ScriptedProcessRunner();
     processes.converse(server, []);
-    const usage = await new ClaudeProviderCli(processes, 5).usage(session, CheckedAt);
+    const usage = await new ClaudeProviderCli(processes, 5).limits(session, CheckedAt);
     expect(usage.unavailable).toEqual({ reason: 'probeFailed', message: 'Claude Code did not answer.' });
     expect(processes.killed).toHaveLength(1);
   });
@@ -158,23 +158,23 @@ describe('Claude Code usage', () => {
     const processes = new ScriptedProcessRunner();
     const otherAnswer = JSON.stringify({ type: 'control_response', response: { request_id: 'init' } });
     processes.converse(server, ['not json', 'null', '7', otherAnswer]);
-    const usage = await new ClaudeProviderCli(processes, 5).usage(session, CheckedAt);
+    const usage = await new ClaudeProviderCli(processes, 5).limits(session, CheckedAt);
     expect(usage.unavailable?.reason).toBe('probeFailed');
   });
   it('kills the process once it has its answer', async () => {
     const processes = new ScriptedProcessRunner();
     processes.converse(server, [answerLine({ rate_limits_available: true, rate_limits: {} })]);
-    await new ClaudeProviderCli(processes).usage(session, CheckedAt);
+    await new ClaudeProviderCli(processes).limits(session, CheckedAt);
     expect(processes.killed).toHaveLength(1);
   });
   it('fails softly when the process dies', async () => {
-    const usage = await new ClaudeProviderCli(new ScriptedProcessRunner()).usage(session, CheckedAt);
+    const usage = await new ClaudeProviderCli(new ScriptedProcessRunner()).limits(session, CheckedAt);
     expect(usage.unavailable?.reason).toBe('probeFailed');
   });
   it('starts in the empty folder, so no project settings load', async () => {
     const processes = new ScriptedProcessRunner();
     processes.converse(server, [answerLine({ rate_limits_available: false })]);
-    await new ClaudeProviderCli(processes).usage(session, CheckedAt);
+    await new ClaudeProviderCli(processes).limits(session, CheckedAt);
     expect(processes.calls[0]?.cwd).toBe('/home/bee/.favo/empty');
   });
   it('clears what could make a subscription look like an API key, and what it launches with', () => {
@@ -186,7 +186,7 @@ describe('Claude Code usage', () => {
       HERDR_SESSION: 'x',
       PATH: '/usr/bin',
     };
-    const { env, unsetEnv } = cli.usageEnvironment(current);
+    const { env, unsetEnv } = cli.limitsEnvironment(current);
     expect(env).toEqual({ TERM: 'xterm-256color' });
     expect(unsetEnv.toSorted()).toEqual(['ANTHROPIC_API_KEY', 'CLAUDE_CODE_ENTRYPOINT', 'HERDR_SESSION', 'TMUX']);
   });
@@ -207,7 +207,7 @@ describe('Codex usage', () => {
   async function read(result: unknown) {
     const processes = new ScriptedProcessRunner();
     processes.converse('codex app-server', [answerLine(result)]);
-    return new CodexProviderCli(processes).usage(session, CheckedAt);
+    return new CodexProviderCli(processes).limits(session, CheckedAt);
   }
 
   it('turns epoch seconds into a date and the length into a kind', async () => {
@@ -286,7 +286,7 @@ describe('Codex usage', () => {
     const refused = JSON.stringify({ id: 2, error: { code: -32600, message: 'chatgpt authentication required' } });
     const apiKey = JSON.stringify({ id: 2, result: { account: { type: 'apiKey' } } });
     processes.converseInTurn('codex app-server', [[refused], [apiKey]]);
-    expect((await new CodexProviderCli(processes).usage(session, CheckedAt)).unavailable).toEqual({
+    expect((await new CodexProviderCli(processes).limits(session, CheckedAt)).unavailable).toEqual({
       reason: 'unsupported',
       message: 'This account has no subscription limits.',
     });
@@ -294,30 +294,30 @@ describe('Codex usage', () => {
   it('asks what kind of account it is only when the read was refused', async () => {
     const processes = new ScriptedProcessRunner();
     processes.converse('codex app-server', [answerLine({ rateLimits: {} })]);
-    await new CodexProviderCli(processes).usage(session, CheckedAt);
+    await new CodexProviderCli(processes).limits(session, CheckedAt);
     expect(processes.calls).toHaveLength(1);
   });
   it('clears CODEX_HOME, so a read from inside another seat cannot follow it', () => {
     const cli = new CodexProviderCli(new ScriptedProcessRunner());
-    expect(cli.usageEnvironment()).toEqual({ env: {}, unsetEnv: ['CODEX_HOME'] });
+    expect(cli.limitsEnvironment()).toEqual({ env: {}, unsetEnv: ['CODEX_HOME'] });
   });
   it('fails softly when the app server refuses', async () => {
     const processes = new ScriptedProcessRunner();
     processes.converse('codex app-server', [JSON.stringify({ id: 2, error: { code: -32600, message: 'no' } })]);
-    const usage = await new CodexProviderCli(processes).usage(session, CheckedAt);
+    const usage = await new CodexProviderCli(processes).limits(session, CheckedAt);
     expect(usage.unavailable).toEqual({ reason: 'probeFailed', message: 'Codex could not read usage.' });
   });
   it('fails softly and kills a process that never answers', async () => {
     const processes = new ScriptedProcessRunner();
     processes.converse('codex app-server', []);
-    const usage = await new CodexProviderCli(processes, 5).usage(session, CheckedAt);
+    const usage = await new CodexProviderCli(processes, 5).limits(session, CheckedAt);
     expect(usage.unavailable).toEqual({ reason: 'probeFailed', message: 'Codex did not answer.' });
     expect(processes.killed).toHaveLength(1);
   });
   it('fails softly on a malformed reply', async () => {
     const processes = new ScriptedProcessRunner();
     processes.converse('codex app-server', ['not json', '{"method":"remoteControl/status/changed"}']);
-    const usage = await new CodexProviderCli(processes, 5).usage(session, CheckedAt);
+    const usage = await new CodexProviderCli(processes, 5).limits(session, CheckedAt);
     expect(usage.unavailable?.reason).toBe('probeFailed');
   });
 });
@@ -374,7 +374,7 @@ describe('Antigravity shim', () => {
   });
   it('reports no limits, because it has no source that needs no token', async () => {
     const cli = new AntigravityProviderCli(new ScriptedProcessRunner());
-    expect(await cli.usage(sessionOf('agy'), 'now')).toEqual({
+    expect(await cli.limits(sessionOf('agy'), 'now')).toEqual({
       checkedAt: 'now',
       windows: [],
       unavailable: { reason: 'unsupported', message: undefined },
@@ -391,7 +391,7 @@ describe('OpenCode shim', () => {
   const help = 'opencode --help';
 
   it('reports no limits, because it has no source that needs no token', async () => {
-    const usage = await new OpencodeProviderCli(new ScriptedProcessRunner()).usage(sessionOf('opencode'), 'now');
+    const usage = await new OpencodeProviderCli(new ScriptedProcessRunner()).limits(sessionOf('opencode'), 'now');
     expect(usage.unavailable?.reason).toBe('unsupported');
   });
 

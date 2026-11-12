@@ -5,7 +5,7 @@ import type { ValueOf } from '@favo/domain/shared/value-of';
 import { SharedItemState } from '@favo/domain/sharing/shared-item';
 import { TerminalPlan } from '@favo/domain/terminal/terminal-plan';
 import { UpdateRecord } from '@favo/domain/updates/update-outcome';
-import { SeatUsage } from '@favo/domain/usage/seat-usage';
+import { SeatLimits } from '@favo/domain/usage/seat-limits';
 import { z } from 'zod';
 
 export const LoginState = {
@@ -59,15 +59,15 @@ export const SeatStatus = z.strictObject({
 });
 export type SeatStatus = z.infer<typeof SeatStatus>;
 
-export const SeatUsageView = z.strictObject({
+export const SeatLimitsView = z.strictObject({
   account: z.string(),
   displayName: z.string(),
   provider: z.enum(ProviderId),
   identity: z.string().optional(),
   plan: z.string().optional(),
-  usage: SeatUsage,
+  usage: SeatLimits,
 });
-export type SeatUsageView = z.infer<typeof SeatUsageView>;
+export type SeatLimitsView = z.infer<typeof SeatLimitsView>;
 
 export const SharedItemView = z.strictObject({
   name: z.string(),

@@ -20,6 +20,8 @@ import { InheritedShellEnvironment } from '@/modules/system/gateways/inherited.s
 import { LoginShellEnvironment } from '@/modules/system/gateways/login.shell-environment';
 import { NodeFileSystem } from '@/modules/system/gateways/node.file-system';
 import { SystemClock } from '@/modules/system/gateways/system.clock';
+import { DiskTokenLogs } from '@/modules/usage/gateways/disk.token-logs';
+import { LitellmPriceSource } from '@/modules/usage/gateways/litellm.price-source';
 import { createServer } from '@/server';
 import { favoPathsOf } from '@/shared/config/favo-paths';
 
@@ -62,6 +64,8 @@ export function createProductionServer(env: Record<string, string | undefined>) 
       releaseAssets: new GithubReleaseAssets(),
       desktopApps: desktopAppsFor(isInSshSession),
       herdr: new CliHerdr(processes),
+      tokenLogs: new DiskTokenLogs(),
+      priceSource: new LitellmPriceSource(env.FAVO_PRICES_URL),
     },
     {
       paths,

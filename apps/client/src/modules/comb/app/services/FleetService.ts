@@ -43,10 +43,16 @@ export const createFleetService: ServiceCreator<FleetService> = (set, get) => ({
       const fleetRepository = container.get('IFleetRepository');
       const machines = await fleetRepository.getMachines();
       set({ machines });
+      void get()
+        .loadUsageView()
+        .catch(() => undefined);
       await Promise.all(
         machines.map(async (machine) => {
           await get().refreshMachine(machine.id);
-          void get().preloadUsage(machine.id);
+          void get().preloadLimits(machine.id);
+          void get()
+            .preloadTokens(machine.id)
+            .catch(() => undefined);
           void get().preloadProviderClis(machine.id);
         })
       );

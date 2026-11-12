@@ -30,6 +30,13 @@ export async function renderApp(screen = WideScreen) {
       }
       await setup.renderOnce();
     },
+    async pressArrow(...directions: ('up' | 'down' | 'left' | 'right')[]) {
+      for (const direction of directions) {
+        setup.mockInput.pressArrow(direction);
+        await setup.flush();
+      }
+      await setup.renderOnce();
+    },
     async pressEscape() {
       setup.mockInput.pressEscape();
       await Bun.sleep(EscapeSettleMs);

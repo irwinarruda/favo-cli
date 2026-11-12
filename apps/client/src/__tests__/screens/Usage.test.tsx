@@ -1,156 +1,395 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
 import { DomainError, DomainErrorCode } from '@favo/domain/shared/domain-error';
-import { mockDb } from '@/__tests__/db';
+import { mockDb, TokenSeats, tokenRowOf } from '@/__tests__/db';
 import { renderApp } from '@/__tests__/utils/renderApp';
+
+const Tall = { width: 129, height: 46 };
+const Narrow = { width: 80, height: 46 };
+const Noon = new Date('2026-11-12T15:30:00.000Z');
 
 let dispose: (() => Promise<void>) | undefined;
 
-async function open(screen?: Parameters<typeof renderApp>[0]) {
+async function open(screen: Parameters<typeof renderApp>[0] = Tall, prepare?: () => void) {
+  setSystemTime(Noon);
+  mockDb.reset();
   const view = await renderApp(screen);
   dispose = view.dispose;
+  prepare?.();
+  await view.waitFor(() => !view.app.state.isLimitsReading && !view.app.state.isTokensReading);
   return view;
 }
 
-async function openUsage(screen?: Parameters<typeof renderApp>[0]) {
-  const view = await open(screen);
-  await view.press('u');
-  await view.waitForFrame((frame) => frame.includes('Claude Code') && frame.includes('read just now'));
+async function openTokens(screen?: Parameters<typeof renderApp>[0], prepare?: () => void) {
+  const view = await open(screen, prepare);
+  await view.press('u', 't');
+  await view.waitForFrame((frame) => frame.includes('read just now') && !frame.includes('reading…'));
   return view;
+}
+
+function linesWith(frame: string, text: string) {
+  return frame.split('\n').filter((line) => line.includes(text));
 }
 
 afterEach(async () => {
   await dispose?.();
   dispose = undefined;
+  setSystemTime();
 });
 
-describe('the usage screen', () => {
-  test('opens with u and goes back with escape', async () => {
-    const { app, captureCharFrame, pressEscape } = await openUsage();
-    expect(app.state.isUsageOpen).toBe(true);
-    expect(captureCharFrame()).toContain('all machines · all providers');
+describe('the tabs', () => {
+  test('open with l, t and c, and remember the last one', async () => {
+    const { app, press, pressEscape, waitForFrame } = await open();
+    await press('u', 't');
+    await waitForFrame((frame) => frame.includes('1.1B tokens'));
+    await press('c');
+    await waitForFrame((frame) => frame.includes('$1,066.25 at API prices      1.1B tokens'));
+    await press('l');
+    await waitForFrame((frame) => frame.includes('81% left'));
+    await press('c');
     await pressEscape();
     expect(app.state.isUsageOpen).toBe(false);
-    expect(captureCharFrame()).toContain('macbook · this machine');
+    await press('u');
+    await waitForFrame((frame) => frame.includes('not your subscription bill'));
+    expect(mockDb.usageView.page).toBe('cost');
   });
-  test('has its numbers ready the moment it opens', async () => {
-    const view = await open();
-    await view.waitFor(() => mockDb.usageReads.length === 2 && !view.app.state.isUsageReading);
-    await view.press('u');
-    expect(view.captureCharFrame()).toContain('81% left');
-    expect(mockDb.usageReads).toHaveLength(2);
+  test('go around with tab and shift+tab', async () => {
+    const { app, press } = await open();
+    await press('u', 'TAB');
+    expect(app.state.usagePage).toBe('tokens');
+    await press('TAB', 'TAB');
+    expect(app.state.usagePage).toBe('limits');
   });
-  test('opens from the key bar', async () => {
-    const { app, clickOn, waitFor } = await open();
-    await clickOn('usage');
-    await waitFor(() => app.state.isUsageOpen);
+  test('open with a click', async () => {
+    const { app, press, clickOn, waitFor } = await open();
+    await press('u');
+    await clickOn('Cost');
+    await waitFor(() => app.state.usagePage === 'cost');
+    await clickOn('Limits');
+    await waitFor(() => app.state.usagePage === 'limits');
   });
-  test('shows the pooled headline, the pace and the next reset', async () => {
-    const { captureCharFrame } = await openUsage();
-    expect(captureCharFrame()).toMatch(/81% left\s+↘\s+↻ \+16%/);
-    expect(captureCharFrame()).toContain('55% left');
+  test('each keep the frame: the title, the filters, the keys', async () => {
+    const { press, captureCharFrame, waitForFrame } = await open();
+    await press('u');
+    for (const key of ['l', 't', 'c']) {
+      await press(key);
+      await waitForFrame((frame) => !frame.includes('reading…'));
+      const frame = captureCharFrame();
+      expect(frame).toMatch(/⬢ Usage {4}Limits {2}Tokens {2}Cost\s+24h {2}7d {2}30d {2}90d {2}all/);
+      expect(frame).toContain('all machines · all accounts · all providers');
+      expect(frame).toMatch(/r refresh {2}f filters {2}tab tabs/);
+      expect(frame).toMatch(/esc back {2}\? help {2}q quit/);
+    }
   });
-  test('gives each seat its own column on a wide screen', async () => {
-    const { captureCharFrame } = await openUsage();
-    const frame = captureCharFrame();
-    expect(frame).toMatch(/personal {2}68%\s+↻ 44m\s+work {2}93%\s+↻ 54m/);
-    expect(frame).toMatch(/personal {2}75%\s+↻ 2d 12h\s+work {2}35%\s+↻ 1d 11h/);
+  test('add their own keys to the bar: none on Limits, the period and the table on the others', async () => {
+    const { press, captureCharFrame } = await open();
+    await press('u');
+    expect(captureCharFrame()).not.toContain('←→ period');
+    expect(captureCharFrame()).not.toContain('b by day');
+    await press('t');
+    expect(captureCharFrame()).toMatch(/←→ period {2}b by day/);
   });
-  test('keeps a seat in the same column in every window', async () => {
-    const { captureCharFrame } = await openUsage();
-    const lines = captureCharFrame().split('\n');
-    const columnsOf = (name: string) => lines.filter((line) => line.includes(`${name}  `)).map((l) => l.indexOf(name));
-    expect(new Set(columnsOf('personal')).size).toBe(1);
-    expect(new Set(columnsOf('work')).size).toBe(1);
-    expect(columnsOf('personal').length).toBeGreaterThanOrEqual(3);
-  });
-  test('draws the bar under its seat, as wide as the column', async () => {
-    const { captureCharFrame } = await openUsage();
-    const lines = captureCharFrame().split('\n');
-    const label = lines.findIndex((line) => line.includes('personal  68%'));
-    const start = lines[label]!.indexOf('personal');
-    expect(lines[label + 1]!.slice(start)).toMatch(/^[▄█]+▂+ {3}[▄█]+▂+/);
-  });
-  test('does not repeat the percentage for a single seat', async () => {
-    const { captureCharFrame } = await openUsage();
-    const codex = captureCharFrame().split('Codex')[1]!;
-    expect(codex).toContain('90% left');
-    expect(codex).not.toMatch(/personal\s+90%/);
-  });
-  test('sums up a provider with no limits in one line', async () => {
-    const { captureCharFrame } = await openUsage({ width: 130, height: 50 });
-    expect(captureCharFrame()).toMatch(/OpenCode\s+no limits available/);
-  });
-  test('says when each machine was read, and what happened to the rest', async () => {
-    const { captureCharFrame } = await openUsage();
-    const frame = captureCharFrame();
-    expect(frame).toContain('macbook read just now');
-    expect(frame).toContain('devbox read just now');
-    expect(frame).toContain('studio offline');
-  });
-  test('keeps two seats side by side at 80 columns', async () => {
-    const { captureCharFrame } = await openUsage({ width: 80, height: 40 });
-    const frame = captureCharFrame();
-    expect(frame).toMatch(/personal {2}68%\s+↻ 44m\s+work {2}93%\s+↻ 54m/);
-    expect(frame).toContain('esc back');
-  });
-  test('falls back to one row per seat when the columns would not fit', async () => {
-    const { captureCharFrame } = await openUsage({ width: 70, height: 50 });
-    const frame = captureCharFrame();
-    expect(frame).toMatch(/Session\s+81% left/);
-    expect(frame).toMatch(/personal\s+[▄█▂]+\s+68%\s+↻ 44m/);
-    expect(frame).toMatch(/work\s+[▄█▂]+\s+93%\s+↻ 54m/);
-  });
-  test('falls back sooner with more seats', async () => {
-    const view = await open({ width: 80, height: 50 });
-    const [personal] = mockDb.seatUsage.local!;
-    const seat = (name: string) => ({ ...personal!, account: name, displayName: name, identity: `${name}@bee.dev` });
-    mockDb.seatUsage.local = [personal!, seat('client'), seat('side'), seat('hive')];
-    await view.press('u', 'r');
-    await view.waitForFrame((frame) => /side\s+[▄█▂]+\s+68%/.test(frame));
-  });
-  test('scrolls what does not fit', async () => {
-    const { captureCharFrame, press, waitForFrame } = await openUsage({ width: 80, height: 16 });
-    expect(captureCharFrame()).not.toContain('Codex');
-    await press('j', 'j', 'j', 'j', 'j', 'j', 'j', 'j', 'j', 'j', 'j', 'j', 'j', 'j', 'j', 'j');
-    await waitForFrame((frame) => frame.includes('Codex'));
-  });
-  test('refreshes with r and with a click, past the wait', async () => {
-    const { clickOn, press, waitFor } = await openUsage();
-    mockDb.usageReads = [];
-    await press('r');
-    await waitFor(() => mockDb.usageReads.length === 2);
-    await clickOn('refresh');
-    await waitFor(() => mockDb.usageReads.length === 4);
-  });
-  test('leaves the comb keys alone while it is open', async () => {
-    const { app, press } = await openUsage();
-    await press('a');
-    expect(app.state.isAddAccountOpen).toBe(false);
-  });
-  test('explains the arrows in help, over the screen', async () => {
-    const { app, captureCharFrame, press, pressEscape } = await openUsage();
-    await press('?');
-    expect(captureCharFrame()).toContain('ahead of, on or under pace');
-    await pressEscape();
-    expect(app.state.isUsageOpen).toBe(true);
-    expect(captureCharFrame()).not.toContain('ahead of, on or under pace');
-  });
-  test('quits with q', async () => {
-    const view = await openUsage();
+  test('leave the comb keys alone, and quit with q', async () => {
+    const view = await openTokens();
+    await view.press('a');
+    expect(view.app.state.isAddAccountOpen).toBe(false);
     await view.press('q');
     expect(view.quitCount).toBe(1);
   });
-  test('keeps the rest of the screen when a machine runs an older favo', async () => {
-    const view = await open();
-    mockDb.usageFailures.devbox = new DomainError(DomainErrorCode.unknownMethod, 'nope');
-    await view.press('u', 'r');
-    await view.waitForFrame((frame) => frame.includes('devbox older favo') && frame.includes('Claude Code'));
+  test('explain their keys in help, over the screen', async () => {
+    const { app, captureCharFrame, press, pressEscape } = await openTokens();
+    await press('?');
+    expect(captureCharFrame()).toContain('limits, tokens, cost');
+    expect(captureCharFrame()).toContain('at API prices, not a bill');
+    await press('c');
+    expect(app.state.usagePage).toBe('tokens');
+    await pressEscape();
+    expect(app.state.isUsageOpen).toBe(true);
   });
-  test('says so when there is nothing to show', async () => {
-    const view = await open();
-    await view.waitFor(() => mockDb.usageReads.length === 2 && !view.app.state.isUsageReading);
-    mockDb.seatUsage = {};
-    await view.press('u', 'r');
-    await view.waitForFrame((frame) => frame.includes('No signed in seat reports limits.'));
+});
+
+describe('the periods', () => {
+  test('change with 1 to 5 and with the arrows', async () => {
+    const { app, press, pressArrow, captureCharFrame } = await openTokens();
+    await press('1');
+    expect(app.state.usagePeriod).toBe('24h');
+    expect(captureCharFrame()).toContain('625M tokens');
+    expect(captureCharFrame()).toContain('busiest hour');
+    await pressArrow('right', 'right', 'right');
+    expect(app.state.usagePeriod).toBe('90d');
+    expect(captureCharFrame()).toContain('1.5B tokens');
+    await press('5');
+    expect(app.state.usagePeriod).toBe('all');
+    await pressArrow('left');
+    expect(app.state.usagePeriod).toBe('90d');
+  });
+  test('change with a click, and are remembered', async () => {
+    const { app, clickOn, waitFor } = await openTokens();
+    await clickOn('7d');
+    await waitFor(() => app.state.usagePeriod === '7d');
+    expect(mockDb.usageView).toEqual({ page: 'tokens', period: '7d' });
+  });
+  test('do nothing on Limits', async () => {
+    const { app, press, pressArrow } = await open();
+    await press('u', '1');
+    await pressArrow('right');
+    expect(app.state.usagePeriod).toBe('30d');
+  });
+});
+
+describe('the Tokens page', () => {
+  test('leads with the total, the sessions and what the API would charge', async () => {
+    const { captureCharFrame } = await openTokens();
+    expect(captureCharFrame()).toContain('1.1B tokens      10 sessions      $1,066.25 at API prices');
+  });
+  test('draws the shape of the period in three rows of blocks, with its ends and its busiest day', async () => {
+    const { captureCharFrame } = await openTokens();
+    const lines = captureCharFrame().split('\n');
+    const base = lines.findIndex((line) => line.includes('▁▁▁▁▁▁'));
+    expect(lines[base]?.trim()).toMatch(/^▁+[▁▂▃▄▅▆▇█]+█{6}$/);
+    expect(lines[base]?.trim()).toHaveLength(90);
+    expect(lines[base - 1]?.trim()).toMatch(/^[▁▂▃▄▅▆▇█]{3}█{3}$/);
+    expect(lines[base - 2]?.trim()).toBe('███');
+    expect(lines[base - 2]?.indexOf('███')).toBe(lines[base]!.lastIndexOf('███'));
+    expect(lines[base + 1]).toMatch(/[A-Z][a-z]{2} \d+ +busiest day [A-Z][a-z]{2} \d+, 625M +[A-Z][a-z]{2} \d+/);
+  });
+  test('shares the total between providers, accounts and machines', async () => {
+    const { captureCharFrame } = await openTokens();
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/Claude Code +█+░+\s+943M\s+86%\s+\$1,006/);
+    expect(frame).toMatch(/Codex +█+░+\s+157M\s+14%\s+\$60\.00/);
+    expect(frame).toMatch(/personal +█+░+\s+890M\s+81%\s+\$706/);
+    expect(frame).toMatch(/work +█+░+\s+210M\s+19%\s+\$360/);
+    expect(frame).toMatch(/macbook +█+░+\s+992M\s+90%\s+\$930/);
+    expect(frame).toMatch(/devbox +█+░+\s+108M\s+10%\s+\$136/);
+  });
+  test('keeps the line of a machine that is down, and names what it does not count yet', async () => {
+    const { captureCharFrame } = await openTokens();
+    expect(captureCharFrame()).toMatch(/studio +offline/);
+    expect(captureCharFrame()).toContain('Antigravity, OpenCode  not counted yet');
+  });
+  test('says what the tokens were, and how much came from cache', async () => {
+    const { captureCharFrame } = await openTokens();
+    expect(captureCharFrame()).toContain('cache read 1.1B · cache write 33M · input 9M · output 8M');
+    expect(captureCharFrame()).toContain('96% of the input came from cache');
+  });
+  test('lists the models, with what each cost per million', async () => {
+    const { captureCharFrame } = await openTokens();
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/Models\s+tokens\s+share\s+cost\s+cached\s+per 1M/);
+    expect(frame).toMatch(/claude-opus-5-5\s+733M\s+67%\s+\$646\.25\s+96%\s+\$0\.88/);
+    expect(frame).toMatch(/gpt-6-astra\s+157M\s+14%\s+\$60\.00\s+97%\s+\$0\.38/);
+  });
+  test('turns the models into days with b, and with a click on the heading', async () => {
+    const { press, clickOn, captureCharFrame, waitForFrame } = await openTokens();
+    await press('b');
+    expect(captureCharFrame()).toMatch(/Days\s+tokens\s+share\s+cost/);
+    expect(captureCharFrame()).toContain('b by model');
+    await clickOn('Days');
+    await waitForFrame((frame) => frame.includes('claude-opus-5-5'));
+  });
+  test('fits 80 columns without wrapping, dropping what matters least', async () => {
+    const { captureCharFrame } = await openTokens(Narrow);
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/Claude Code +█+░+\s+943M\s+86%\s+\$1,006/);
+    expect(frame).toMatch(/claude-opus-5-5\s+733M\s+67%\s+\$646\.25\s+96%\s+\$0\.88/);
+    expect(frame).toMatch(/[A-Z][a-z]{2} \d+ +busiest day [A-Z][a-z]{2} \d+, 625M +[A-Z][a-z]{2} \d+/);
+    expect(linesWith(frame, '▁▁▁▁▁▁')[0]?.trim()).toHaveLength(60);
+    expect(frame).toMatch(/r refresh {2}f filters {2}←→ period {2}b by day {2}esc back {2}\? help {2}q quit/);
+    expect(frame).not.toContain('...');
+  });
+  test('drops columns, never the names, on a very narrow screen', async () => {
+    const { captureCharFrame } = await openTokens({ width: 60, height: 46 });
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/claude-fable-5-2\s+210M\s+19%\s+\$360\.00\s*\n/);
+    expect(frame).not.toContain('cached');
+    expect(frame).toMatch(/Claude Code +█+░+\s+943M\s+86%\s+\$1,006/);
+    expect(frame).toMatch(/cache read 1\.1B · cache write 33M\s*\n\s+input 9M · output 8M/);
+  });
+  test('scrolls what does not fit', async () => {
+    const { captureCharFrame, press, waitForFrame } = await openTokens({ width: 129, height: 16 });
+    expect(captureCharFrame()).not.toContain('Models');
+    await press(...Array<string>(24).fill('j'));
+    await waitForFrame((frame) => frame.includes('claude-opus-5-5'));
+  });
+  test('refreshes with r and with a click', async () => {
+    const { clickOn, press, waitFor } = await openTokens();
+    mockDb.tokenReads = [];
+    await press('r');
+    await waitFor(() => mockDb.tokenReads.length === 2);
+    await clickOn('refresh');
+    await waitFor(() => mockDb.tokenReads.length === 4);
+    expect(mockDb.limitReads).toHaveLength(2);
+  });
+  test('says how many records could not be read, quietly, under everything else', async () => {
+    const { captureCharFrame, captureSpans } = await openTokens(Tall, () => {
+      mockDb.tokenUsage.local!.skippedRecords = 2;
+    });
+    const frame = captureCharFrame();
+    const note = '2 records could not be read, so these numbers may be low.';
+    expect(frame.indexOf(note)).toBeGreaterThan(frame.indexOf('gpt-6-astra'));
+    const spans = captureSpans().lines.flatMap((line) => line.spans);
+    const colorOf = (text: string) => spans.find((span) => span.text.includes(text))?.fg.toString();
+    expect(colorOf('2 records could not be read')).toBe(colorOf('not counted yet'));
+    expect(colorOf('2 records could not be read')).not.toBe(colorOf('1.1B tokens'));
+  });
+  test('works without prices, with no cost column', async () => {
+    const { captureCharFrame } = await openTokens(Tall, () => {
+      mockDb.tokenPrices = { source: 'litellm', rates: {} };
+    });
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/1\.1B tokens {6}10 sessions\s*\n/);
+    expect(frame).toMatch(/Models\s+tokens\s+share\s+cached\s*\n/);
+    expect(frame).not.toContain('$');
+  });
+  test('keeps the rest of the screen when a machine runs an older favo', async () => {
+    const { captureCharFrame } = await openTokens(Tall, () => {
+      mockDb.tokenFailures.devbox = new DomainError(DomainErrorCode.unknownMethod, 'nope');
+    });
+    expect(captureCharFrame()).toMatch(/devbox +█+░+\s+108M\s+10%\s+\$136\.25 {2}older favo/);
+    expect(captureCharFrame()).toContain('1.1B tokens');
+  });
+  test('still names a machine that could not answer when the period holds nothing', async () => {
+    const { press, pressEscape, captureCharFrame } = await openTokens(Tall, () => {
+      mockDb.tokenFailures.devbox = new DomainError(DomainErrorCode.machineUnreachable, 'devbox: gone');
+    });
+    await press('1', 'f', ' ');
+    await pressEscape();
+    const frame = captureCharFrame();
+    expect(frame).toContain('No tokens counted in this period.');
+    expect(frame).toMatch(/devbox +could not read, last read 1h ago/);
+    expect(frame).toMatch(/studio +offline/);
+    expect(frame).not.toMatch(/macbook {2}/);
+  });
+  test('says so when there is nothing in the period', async () => {
+    const { captureCharFrame } = await openTokens(Tall, () => {
+      mockDb.tokenUsage = {};
+    });
+    expect(captureCharFrame()).toContain('No tokens counted in this period.');
+  });
+});
+
+describe('the Cost page', () => {
+  async function openCost(screen?: Parameters<typeof renderApp>[0], prepare?: () => void) {
+    const view = await openTokens(screen, prepare);
+    await view.press('c');
+    return view;
+  }
+
+  test('leads with dollars, and always says they are not a bill', async () => {
+    const { captureCharFrame } = await openCost();
+    const frame = captureCharFrame();
+    expect(frame).toContain('$1,066.25 at API prices      1.1B tokens      $5,220.00 saved by cache');
+    expect(frame).toContain('what the API would charge for these tokens, not your subscription bill');
+  });
+  test('draws the same sections in dollars, ordered by cost', async () => {
+    const { captureCharFrame } = await openCost();
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/Claude Code +█+░+\s+\$1,006\.25\s+94%\s+943M/);
+    expect(frame).toMatch(/busiest day [A-Z][a-z]{2} \d+, \$510\.00/);
+    expect(frame).toContain('cache read $580.00 · cache write $256.25 · output $195.00 · input $35.00');
+    expect(frame).toMatch(/Models\s+cost\s+share\s+tokens\s+cached\s+per 1M/);
+    expect(frame.indexOf('claude-opus-5-5')).toBeLessThan(frame.indexOf('claude-fable-5-2'));
+    expect(frame.indexOf('claude-fable-5-2')).toBeLessThan(frame.indexOf('gpt-6-astra'));
+  });
+  test('puts a model with no list price last, and says what that leaves out', async () => {
+    const { captureCharFrame } = await openCost(Tall, () => {
+      const seat = { ...TokenSeats.personalCodex, model: 'mystery-1' };
+      mockDb.tokenUsage.local!.rows.push(tokenRowOf(2, seat, [0, 0, 0, 7], 0));
+    });
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/mystery-1\s+unpriced\s+7M/);
+    expect(frame.indexOf('gpt-6-astra')).toBeLessThan(frame.indexOf('mystery-1'));
+    expect(frame).toContain('7M tokens have no list price, and are left out of every dollar.');
+  });
+  test('says there is no price table yet, and still counts the tokens', async () => {
+    const { captureCharFrame } = await openCost(Tall, () => {
+      mockDb.tokenPrices = { source: 'litellm', rates: {} };
+    });
+    const frame = captureCharFrame();
+    expect(frame).toContain('No price table yet. favo fetches it the next time this computer is online.');
+    expect(frame).toContain('1.1B tokens');
+  });
+  test('fits 80 columns', async () => {
+    const { captureCharFrame } = await openCost(Narrow);
+    const frame = captureCharFrame();
+    expect(frame).toContain('$1,066.25 at API prices      1.1B tokens      $5,220.00 saved by cache');
+    expect(frame).toMatch(/Claude Code +█+░+\s+\$1,006\.25\s+94%\s+943M/);
+    expect(frame).not.toContain('...');
+  });
+});
+
+describe('the filters', () => {
+  test('open with f, list three groups, and close with escape', async () => {
+    const { app, press, pressEscape, captureCharFrame } = await openTokens();
+    await press('f');
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/Machines[^\n]*\n[^\n]*▸ ⬢ macbook/);
+    expect(frame).toMatch(/⬢ studio\s+offline/);
+    expect(frame).toMatch(/Accounts[^\n]*\n[^\n]*⬢ personal/);
+    expect(frame).toMatch(/Providers[^\n]*\n[^\n]*⬢ Claude Code/);
+    expect(frame).toMatch(/↑↓ move {2}space toggle {2}o only this {2}a all/);
+    await pressEscape();
+    expect(app.state.isUsageFilterOpen).toBe(false);
+    expect(app.state.isUsageOpen).toBe(true);
+  });
+  test('open with a click on the status row', async () => {
+    const { app, clickOn, waitFor } = await openTokens();
+    await clickOn('all machines');
+    await waitFor(() => app.state.isUsageFilterOpen);
+  });
+  test('leave a row out with space, and recount the screen behind at once', async () => {
+    const { press, pressEscape, captureCharFrame } = await openTokens();
+    await press('f', 'j', ' ');
+    expect(captureCharFrame()).toMatch(/▸ ⬡ devbox/);
+    expect(captureCharFrame()).toContain('992M tokens');
+    await pressEscape();
+    expect(captureCharFrame()).toContain('2 of 3 machines · all accounts · all providers');
+    expect(captureCharFrame()).not.toMatch(/devbox +█/);
+  });
+  test('keep only one row with o, and turn everything back on with a', async () => {
+    const { press, captureCharFrame } = await openTokens();
+    await press('f', 'j', 'j', 'j', 'j', 'o');
+    expect(captureCharFrame()).toMatch(/⬡ personal/);
+    expect(captureCharFrame()).toContain('210M tokens');
+    await press('a');
+    expect(captureCharFrame()).toContain('1.1B tokens');
+    expect(captureCharFrame()).not.toContain('⬡');
+  });
+  test('toggle a row with a click, and close from the hint', async () => {
+    const { app, press, clickOn, waitFor } = await openTokens();
+    await press('f');
+    await clickOn('⬢ Codex');
+    await waitFor(() => app.state.usageFilter.providers.includes('codex'));
+    await clickOn('esc done');
+    await waitFor(() => !app.state.isUsageFilterOpen);
+  });
+  test('keep the screen keys off while they are open', async () => {
+    const { app, press } = await openTokens();
+    await press('f', 'c', 'l', '1', 'b');
+    expect(app.state).toMatchObject({ usagePage: 'tokens', usagePeriod: '30d', tokenBreakdown: 'models' });
+  });
+  test('apply to Limits too, and stay on when the tab changes', async () => {
+    const { press, pressEscape, captureCharFrame, waitForFrame } = await openTokens();
+    await press('f', 'j', 'j', 'j', 'j', ' ');
+    await pressEscape();
+    await press('l');
+    await waitForFrame((frame) => frame.includes('Claude Code') && !frame.includes('work'));
+    expect(captureCharFrame()).toContain('all machines · 1 of 2 accounts · all providers');
+  });
+  test('say so when nothing is selected', async () => {
+    const { press, pressEscape, captureCharFrame } = await openTokens();
+    await press('f', 'j', 'j', 'j', ' ', 'j', ' ');
+    await pressEscape();
+    expect(captureCharFrame()).toContain('Nothing is selected.');
+    await press('l');
+    expect(captureCharFrame()).toContain('Nothing is selected.');
+  });
+  test('start with everything on the next time Usage opens', async () => {
+    const { press, pressEscape, captureCharFrame } = await openTokens();
+    await press('f', ' ');
+    await pressEscape();
+    await pressEscape();
+    await press('u');
+    expect(captureCharFrame()).toContain('all machines · all accounts · all providers');
   });
 });

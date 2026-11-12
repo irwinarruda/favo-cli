@@ -1,6 +1,6 @@
 import { ProviderId } from '@favo/domain/providers/provider';
 import { BuiltInThemes } from '@favo/domain/themes/built-in-themes';
-import { accountOf, mockDb } from '@/__tests__/db';
+import { accountOf, mockDb, tokenRowOf } from '@/__tests__/db';
 
 const MacHome = '/Users/bee';
 const RemoteHome = '/home/bee';
@@ -8,6 +8,23 @@ const NotInstalled = { isInstalled: false };
 const OlderFavo = { state: 'online', version: '0.2.0', isBehind: true, directory: RemoteHome } as const;
 
 export const Key = { up: '\u001b[A', down: '\u001b[B', right: '\u001b[C', left: '\u001b[D', tab: '\t', enter: '\r' };
+
+type TypeCounts = [input: number, cacheRead: number, cacheWrite: number, output: number];
+
+const Million = 1_000_000;
+const TotalTokens = 12_400 * Million;
+const DayShape = [1, 2, 1, 3, 2, 1, 1, 4, 3, 2, 5, 3, 1, 1, 2, 6, 8, 5, 3, 2, 1, 3, 4, 2, 1, 2, 5, 3, 2, 4];
+const ShapeTotal = DayShape.reduce((total, level) => total + level, 0);
+const TypeMix = [0.01, 0.96, 0.025, 0.005];
+const TokenMix = [
+  { seat: { account: 'work', provider: ProviderId.claude, model: 'claude-opus-5-5' }, share: 0.34, sessions: 130 },
+  { seat: { account: 'work', provider: ProviderId.claude, model: 'claude-fable-5-2' }, share: 0.06, sessions: 30 },
+  { seat: { account: 'work', provider: ProviderId.codex, model: 'gpt-6-astra' }, share: 0.1, sessions: 46 },
+  { seat: { account: 'personal', provider: ProviderId.claude, model: 'claude-opus-5-5' }, share: 0.2, sessions: 86 },
+  { seat: { account: 'personal', provider: ProviderId.codex, model: 'gpt-6-astra' }, share: 0.15, sessions: 60 },
+  { seat: { account: 'client', provider: ProviderId.claude, model: 'claude-opus-5-5' }, share: 0.1, sessions: 40 },
+  { seat: { account: 'client', provider: ProviderId.claude, model: 'claude-fable-5-2' }, share: 0.05, sessions: 20 },
+];
 
 export type Scene = {
   themeId: string;
@@ -41,9 +58,24 @@ export const Scenes: Record<string, Scene> = {
       mockDb.runningDesktopApps = [ProviderId.claude];
     },
   },
-  'favo-usage': {
+  'favo-usage-limits': {
     themeId: 'honey',
     keys: ['u'],
+    stage: stageUsage,
+  },
+  'favo-usage-tokens': {
+    themeId: 'honey',
+    keys: ['u', 't'],
+    stage: stageUsage,
+  },
+  'favo-usage-cost': {
+    themeId: 'honey',
+    keys: ['u', 'c'],
+    stage: stageUsage,
+  },
+  'favo-usage-filters': {
+    themeId: 'honey',
+    keys: ['u', 't', 'f', Key.down, Key.down, ' ', ...Array<string>(4).fill(Key.down), ' '],
     stage: stageUsage,
   },
   'favo-threads': {
@@ -139,7 +171,7 @@ function stageThreads() {
 }
 
 function stageUsage() {
-  const [personal, work, codex, opencode] = mockDb.seatUsage.local!;
+  const [personal, work, codex, opencode] = mockDb.seatLimits.local!;
   const inMinutes = (minutes: number) => new Date(Date.now() + (minutes + 0.5) * 60_000).toISOString();
   const session = { ...personal!.usage.windows[0]!, usedPercent: 12, resetsAt: inMinutes(272) };
   const week = { ...personal!.usage.windows[1]!, usedPercent: 45, resetsAt: inMinutes(3480) };
@@ -151,7 +183,44 @@ function stageUsage() {
     plan: 'pro',
     usage: { ...work!.usage, windows: [session, week] },
   };
-  mockDb.seatUsage = { local: [personal!, work!, client, codex!, opencode!], devbox: [personal!], studio: [personal!] };
+  mockDb.seatLimits = {
+    local: [personal!, work!, client, codex!, opencode!],
+    devbox: [personal!],
+    studio: [personal!],
+  };
+  stageTokens();
+}
+
+function stageTokens() {
+  const rowsOf = (share: number) =>
+    DayShape.flatMap((level, index) => {
+      const daysAgo = DayShape.length - 1 - index;
+      const tokens = (TotalTokens * share * level) / ShapeTotal;
+      const before = DayShape.slice(0, index).reduce((total, each) => total + each, 0);
+      return TokenMix.map(({ seat, share: seatShare, sessions }) => {
+        const counted = (levels: number) => Math.round((sessions * share * levels) / ShapeTotal);
+        const types = TypeMix.map((type) => (tokens * seatShare * type) / Million) as TypeCounts;
+        return tokenRowOf(daysAgo * 24, seat, types, counted(before + level) - counted(before));
+      });
+    });
+  const readAt = new Date().toISOString();
+  mockDb.tokenUsage = {
+    local: { readAt, skippedRecords: 0, rows: rowsOf(0.6) },
+    devbox: { readAt, skippedRecords: 0, rows: rowsOf(0.3) },
+    studio: { readAt, skippedRecords: 0, rows: rowsOf(0.1) },
+  };
+  mockDb.keptTokenUsage = {
+    pi: { readAt: new Date(Date.now() - 3 * 24 * 3_600_000).toISOString(), skippedRecords: 0, rows: [] },
+  };
+  mockDb.tokenPrices = {
+    source: 'litellm',
+    fetchedAt: readAt,
+    rates: {
+      'claude-opus-5-5': { input: 0.000002, output: 0.00001, cacheRead: 0.0000002, cacheWrite: 0.0000025 },
+      'claude-fable-5-2': { input: 0.000005, output: 0.000025, cacheRead: 0.0000005, cacheWrite: 0.00000625 },
+      'gpt-6-astra': { input: 0.000004, output: 0.00002, cacheRead: 0.0000004, cacheWrite: 0.000004 },
+    },
+  };
 }
 
 export function stageScene(name: string) {

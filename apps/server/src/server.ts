@@ -7,7 +7,6 @@ import { AccountsService } from '@/modules/accounts/services/accounts.service';
 import { HooksService } from '@/modules/accounts/services/hooks.service';
 import { SeatsService } from '@/modules/accounts/services/seats.service';
 import { ThreadsService } from '@/modules/accounts/services/threads.service';
-import { UsageService } from '@/modules/accounts/services/usage.service';
 import { registerDesktopController } from '@/modules/desktop/controllers/desktop.controller';
 import type { DesktopApps } from '@/modules/desktop/gateways/desktop-apps';
 import { DesktopAppsService } from '@/modules/desktop/services/desktop-apps.service';
@@ -39,6 +38,15 @@ import { UpdateService } from '@/modules/terminal/services/update.service';
 import { registerThemesController } from '@/modules/themes/controllers/themes.controller';
 import { ThemeRepository } from '@/modules/themes/repositories/theme.repository';
 import { ThemesService } from '@/modules/themes/services/themes.service';
+import { registerUsageController } from '@/modules/usage/controllers/usage.controller';
+import type { PriceSource } from '@/modules/usage/gateways/price-source';
+import type { TokenLogs } from '@/modules/usage/gateways/token-logs';
+import { PriceTableRepository } from '@/modules/usage/repositories/price-table.repository';
+import { TokenUsageRepository } from '@/modules/usage/repositories/token-usage.repository';
+import { LimitsService } from '@/modules/usage/services/limits.service';
+import { PricesService } from '@/modules/usage/services/prices.service';
+import { TokensService } from '@/modules/usage/services/tokens.service';
+import { UsageViewService } from '@/modules/usage/services/usage-view.service';
 import type { FavoPaths } from '@/shared/config/favo-paths';
 import type { HostFacts } from '@/shared/config/host-facts';
 import { RpcRouter } from '@/shared/rpc/rpc-router';
@@ -55,6 +63,8 @@ export type ServerGateways = {
   releaseAssets: ReleaseAssets;
   desktopApps: DesktopApps;
   herdr: Herdr;
+  tokenLogs: TokenLogs;
+  priceSource: PriceSource;
 };
 
 export type ServerOptions = {
@@ -66,8 +76,21 @@ export type ServerOptions = {
 };
 
 export function createServer(gateways: ServerGateways, options: ServerOptions) {
-  const { fileSystem, processes, shell, clock, clis, ssh, tailscale, remotes, releaseAssets, desktopApps, herdr } =
-    gateways;
+  const {
+    fileSystem,
+    processes,
+    shell,
+    clock,
+    clis,
+    ssh,
+    tailscale,
+    remotes,
+    releaseAssets,
+    desktopApps,
+    herdr,
+    tokenLogs,
+    priceSource,
+  } = gateways;
   const { paths, host, callerEnv, pid, binary } = options;
   const router = new RpcRouter();
   const providers = new ProvidersService(clis, processes, shell, paths, callerEnv);
@@ -85,7 +108,10 @@ export function createServer(gateways: ServerGateways, options: ServerOptions) {
     clock,
     paths
   );
-  const usage = new UsageService(accounts, providers, fileSystem, clock, paths, callerEnv);
+  const limits = new LimitsService(accounts, providers, fileSystem, clock, paths, callerEnv);
+  const tokens = new TokensService(accounts, tokenLogs, new TokenUsageRepository(fileSystem, paths), clock);
+  const prices = new PricesService(priceSource, new PriceTableRepository(fileSystem, paths), clock);
+  const usageView = new UsageViewService(config);
   const threads = new ThreadsService(
     threadRepository,
     seats,
@@ -151,7 +177,8 @@ export function createServer(gateways: ServerGateways, options: ServerOptions) {
   const themes = new ThemesService(new ThemeRepository(fileSystem, paths), config);
   const desktop = new DesktopAppsService(desktopApps, seats, providers, fileSystem, paths, host);
   registerSystemController(router, host);
-  registerAccountsController(router, accounts, seats, usage, threads, hooks);
+  registerAccountsController(router, accounts, seats, threads, hooks);
+  registerUsageController(router, limits, tokens, prices, usageView);
   registerMachinesController(router, machines, installer);
   registerTerminalController(router, terminal, updates, providerUpdates);
   registerDesktopController(router, desktop);
@@ -162,7 +189,7 @@ export function createServer(gateways: ServerGateways, options: ServerOptions) {
     router,
     prepare: () => fileSystem.ensurePrivateDirectory(paths.root),
     close() {
-      usage.stop();
+      limits.stop();
       remotes.closeAll();
       processes.killOpen();
     },

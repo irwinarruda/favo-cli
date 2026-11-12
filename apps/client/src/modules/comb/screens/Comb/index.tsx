@@ -17,6 +17,7 @@ import { ThreadPicker } from '@/modules/threads/screens/ThreadPicker';
 import type { ProviderCliTarget } from '@/modules/updates/app/services/ProviderCliService';
 import { ProviderClis } from '@/modules/updates/screens/ProviderClis';
 import { Usage } from '@/modules/usage/screens/Usage';
+import { UsageHelpKeys } from '@/modules/usage/screens/Usage/helpKeys';
 import { type Confirmation, ConfirmDialog } from '@/shared/components/ConfirmDialog';
 import { ToastLine } from '@/shared/components/ToastLine';
 import { useError } from '@/shared/error/useError';
@@ -224,7 +225,7 @@ export function Comb({ onQuit }: { onQuit(): void }) {
           onUpdate={onUpdateProviderClis}
         />
       )}
-      {isHelpOpen && <HelpDialog onClose={() => setIsHelpOpen(false)} />}
+      {isHelpOpen && <HelpDialog keys={isUsageOpen ? UsageHelpKeys : undefined} onClose={() => setIsHelpOpen(false)} />}
       {isAddAccountOpen && <AddAccount />}
       {isRenameAccountOpen && <RenameAccount />}
       {isAddMachineOpen && <AddMachine />}

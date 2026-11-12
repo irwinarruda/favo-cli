@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- See how many tokens every seat used, and what they would cost at API list prices. The Usage screen (`u`) now has three pages, Limits, Tokens and Cost: `l` `t` `c` or `tab` change the page, `1` to `5` or the arrows pick the last 24 hours, 7, 30 or 90 days or all time, and `b` switches the table between models and days. Each page shows the total, the shape of the period, and the split by provider, account, machine and model. It covers Claude Code and Codex.
+- `favo usage --tokens` and `favo usage --cost` print the same in the terminal, with `--days <n>` or `--all` for the period. `--json` prints one row per day, machine, account, provider and model, ready for a script or a site.
+- Narrow any Usage page to some machines, accounts and providers. Press `f` in the TUI, or pass `--machine`, `--account` and `--provider` to `favo usage`, each as many times as you like.
+- favo keeps its own count of tokens by hour in `~/.favo/usage`, because Claude Code deletes its logs after 30 days. It counts once a day when the TUI opens, so a day is not lost on a machine where you rarely open Usage.
+
+### Changed
+
+- `favo usage` takes `--limits` to name the page it always printed. Its output and its `--json` are the same as before.
+- For the Cost page, favo downloads LiteLLM's public price table from GitHub, at most once a day and only when you open Tokens or Cost. It is the first network use favo has besides downloading itself.
+
 ## [0.13.0] - 2026-11-07
 
 ### Changed

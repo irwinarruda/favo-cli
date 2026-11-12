@@ -1,7 +1,7 @@
 import { LoginState } from '@favo/contracts/rpc/views';
 import { ProviderId, Providers } from '@favo/domain/providers/provider';
 import { parseJson } from '@favo/domain/shared/parse-json';
-import { UsageUnavailableReason, unavailableUsage } from '@favo/domain/usage/seat-usage';
+import { LimitsUnavailableReason, unavailableLimits } from '@favo/domain/usage/seat-limits';
 import { z } from 'zod';
 import {
   type LaunchEnvironment,
@@ -9,18 +9,18 @@ import {
   type ProviderSession,
   type UpdateSwitchSearch,
 } from '@/modules/providers/gateways/provider-cli';
-import { type ClaudeUsageResponse, claudeUsageOf } from '@/modules/providers/utils/claude-usage';
+import { type ClaudeLimitsResponse, claudeLimitsOf } from '@/modules/providers/utils/claude-limits';
 import type { FileSystem } from '@/modules/system/gateways/file-system';
 import type { ProcessRunner } from '@/modules/system/gateways/process-runner';
 
 const StatusTimeoutMs = 15_000;
-const UsageTimeoutMs = 10_000;
+const LimitsTimeoutMs = 10_000;
 const PersonalOrganizationSuffix = "'s Organization";
 const AmbientVariable = /^(?:CLAUDE|ANTHROPIC|HERDR)/i;
 const SwitchedOnValues = ['1', 'true', 'yes', 'on'];
 const ClaudeSettings = z.object({ env: z.record(z.string(), z.unknown()).optional() });
-const UsageRequestId = 'usage';
-const UsageArguments = [
+const LimitsRequestId = 'usage';
+const LimitsArguments = [
   '-p',
   '--input-format',
   'stream-json',
@@ -31,11 +31,11 @@ const UsageArguments = [
   '--setting-sources',
   'local',
 ];
-const UsageRequests = [
+const LimitsRequests = [
   { type: 'control_request', request_id: 'init', request: { subtype: 'initialize' } },
   {
     type: 'control_request',
-    request_id: UsageRequestId,
+    request_id: LimitsRequestId,
     request: { subtype: 'get_usage', skip_behaviors: true },
   },
 ];
@@ -45,7 +45,7 @@ export class ClaudeProviderCli extends ProviderCli {
 
   constructor(
     private readonly processes: ProcessRunner,
-    private readonly usageTimeoutMs = UsageTimeoutMs
+    private readonly limitsTimeoutMs = LimitsTimeoutMs
   ) {
     super();
   }
@@ -76,7 +76,7 @@ export class ClaudeProviderCli extends ProviderCli {
     return { env: { TERM: 'xterm-256color' }, unsetEnv: ['TMUX'] };
   }
 
-  override usageEnvironment(current: Record<string, string | undefined>) {
+  override limitsEnvironment(current: Record<string, string | undefined>) {
     const { env, unsetEnv } = this.launchEnvironment(current);
     return { env, unsetEnv: [...unsetEnv, ...Object.keys(current).filter((name) => AmbientVariable.test(name))] };
   }
@@ -88,21 +88,22 @@ export class ClaudeProviderCli extends ProviderCli {
     return switches.find((name) => isSwitchedOn(env[name]) || isSwitchedOn(settings?.env?.[name]));
   }
 
-  override async usage({ binary, env, cwd }: ProviderSession, checkedAt: string) {
-    const server = this.processes.open({ command: binary, args: UsageArguments, env, cwd });
-    const answer = await this.ask(server, UsageRequests, usageAnswerOf, this.usageTimeoutMs);
-    if (!answer) return unavailableUsage(checkedAt, UsageUnavailableReason.probeFailed, 'Claude Code did not answer.');
-    return claudeUsageOf(answer.response, checkedAt);
+  override async limits({ binary, env, cwd }: ProviderSession, checkedAt: string) {
+    const server = this.processes.open({ command: binary, args: LimitsArguments, env, cwd });
+    const answer = await this.ask(server, LimitsRequests, limitsAnswerOf, this.limitsTimeoutMs);
+    if (!answer)
+      return unavailableLimits(checkedAt, LimitsUnavailableReason.probeFailed, 'Claude Code did not answer.');
+    return claudeLimitsOf(answer.response, checkedAt);
   }
 }
 
 type ControlMessage = {
   type?: string;
-  response?: { request_id?: string; response?: ClaudeUsageResponse };
+  response?: { request_id?: string; response?: ClaudeLimitsResponse };
 } | null;
 
-function usageAnswerOf(message: ControlMessage) {
-  const isAnswer = message?.type === 'control_response' && message.response?.request_id === UsageRequestId;
+function limitsAnswerOf(message: ControlMessage) {
+  const isAnswer = message?.type === 'control_response' && message.response?.request_id === LimitsRequestId;
   return isAnswer ? message.response : undefined;
 }
 

@@ -56,7 +56,12 @@ async function openFleet(callerEnv?: Record<string, string>) {
 }
 
 async function readsSettled() {
-  while (useApp.getState().isUsageReading || useApp.getState().isProviderClisReading) await Bun.sleep(1);
+  while (useApp.getState().isLimitsReading || useApp.getState().isProviderClisReading) await Bun.sleep(1);
+}
+
+async function tokensSettled() {
+  await Bun.sleep(5);
+  while (useApp.getState().isTokensReading) await Bun.sleep(1);
 }
 
 afterEach(async () => {
@@ -164,8 +169,8 @@ describe('usage on a real backend', () => {
 
   test('reads both machines through the contracts', async () => {
     const { mac, devbox, flush, mockInput, waitForFrame } = await openFleet();
-    mac.clis.claude.usageReading = { windows: [session] };
-    devbox.clis.claude.usageReading = { windows: [{ ...session, usedPercent: 7 }] };
+    mac.clis.claude.limitsReading = { windows: [session] };
+    devbox.clis.claude.limitsReading = { windows: [{ ...session, usedPercent: 7 }] };
     mockInput.pressKey('u');
     await flush();
     mockInput.pressKey('r');
@@ -174,7 +179,7 @@ describe('usage on a real backend', () => {
   });
   test('shows a machine with no such method as older favo, and keeps the rest', async () => {
     const { mac, flush, mockInput, waitForFrame } = await openFleet();
-    mac.clis.claude.usageReading = { windows: [session] };
+    mac.clis.claude.limitsReading = { windows: [session] };
     mac.remotes.connect('devbox', {
       send: async ({ id, method }) => {
         if (method === 'seats.usage') {
@@ -188,6 +193,59 @@ describe('usage on a real backend', () => {
     mockInput.pressKey('r');
     await readsSettled();
     await waitForFrame((frame) => frame.includes('devbox older favo') && frame.includes('68% left'));
+  });
+});
+
+describe('tokens on a real backend', () => {
+  function claudeLine(id: string, output: number) {
+    const usage = { input_tokens: 1_000_000, cache_read_input_tokens: 20_000_000, output_tokens: output };
+    return {
+      type: 'assistant',
+      timestamp: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+      requestId: `req_${id}`,
+      sessionId: `session-${id}`,
+      message: { id: `msg_${id}`, model: 'claude-test-1', usage },
+    };
+  }
+
+  test('counts both machines through the contracts, prices them here and remembers the tab', async () => {
+    const { mac, devbox, flush, mockInput, waitForFrame } = await openFleet();
+    mac.priceSource.table = { 'claude-test-1': { input_cost_per_token: 0.000003, output_cost_per_token: 0.000015 } };
+    mac.tokenLogs.write(`${Home}/.claude/projects/hive/one.jsonl`, [claudeLine('one', 1_000_000)]);
+    devbox.tokenLogs.write(`${Home}/.claude/projects/hive/two.jsonl`, [claudeLine('two', 3_000_000)]);
+    mockInput.pressKey('u');
+    await flush();
+    mockInput.pressKey('t');
+    await flush();
+    mockInput.pressKey('r');
+    await tokensSettled();
+    await waitForFrame((frame) => frame.includes('46M tokens      2 sessions      $186.00 at API prices'));
+    await waitForFrame((frame) => /devbox +█+░+\s+24M\s+52%/.test(frame) && frame.includes('read just now'));
+    expect(devbox.priceSource.fetches).toBe(0);
+    expect(JSON.parse((await mac.fileSystem.readText(mac.paths.configFile))!).usageView).toEqual({
+      page: 'tokens',
+      period: '30d',
+    });
+    expect(await mac.fileSystem.list(mac.paths.keptTokenUsage)).toEqual(['devbox.json']);
+  });
+  test('shows a machine with no such method as older favo, and keeps the rest', async () => {
+    const { mac, flush, mockInput, waitForFrame } = await openFleet();
+    mac.tokenLogs.write(`${Home}/.claude/projects/hive/one.jsonl`, [claudeLine('one', 1_000_000)]);
+    mac.remotes.connect('devbox', {
+      send: async ({ id, method }) => {
+        if (method.startsWith('usage.')) {
+          return { id, ok: false, error: { code: 'unknownMethod', message: `Unknown method "${method}".` } };
+        }
+        return { id, ok: true, result: [] };
+      },
+    });
+    mockInput.pressKey('u');
+    await flush();
+    mockInput.pressKey('t');
+    await flush();
+    mockInput.pressKey('r');
+    await tokensSettled();
+    await waitForFrame((frame) => /devbox +older favo/.test(frame) && frame.includes('22M tokens'));
   });
 });
 

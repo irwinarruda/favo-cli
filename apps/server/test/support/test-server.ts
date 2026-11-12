@@ -12,6 +12,8 @@ import { FixedClock } from '@/modules/system/gateways/fixed.clock';
 import { InheritedShellEnvironment } from '@/modules/system/gateways/inherited.shell-environment';
 import { MemoryFileSystem } from '@/modules/system/gateways/memory.file-system';
 import { ScriptedProcessRunner } from '@/modules/system/gateways/scripted.process-runner';
+import { MemoryTokenLogs } from '@/modules/usage/gateways/memory.token-logs';
+import { ScriptedPriceSource } from '@/modules/usage/gateways/scripted.price-source';
 import { createServer } from '@/server';
 import { favoPathsOf } from '@/shared/config/favo-paths';
 
@@ -58,13 +60,16 @@ export function createTestServer(options: TestServerOptions = {}) {
   const releaseAssets = new ScriptedReleaseAssets(fileSystem);
   const desktopApps = new ScriptedDesktopApps(`${Home}/.config`);
   const herdr = new ScriptedHerdr();
+  const tokenLogs = new MemoryTokenLogs();
+  const priceSource = new ScriptedPriceSource();
+  const clock = new FixedClock();
   const paths = favoPathsOf({ home: Home, isWindows: options.isWindows ?? false });
   const server = createServer(
     {
       fileSystem,
       processes,
       shell: new FixedShellEnvironment('/usr/bin:/bin', options.shellVariables ?? {}),
-      clock: new FixedClock(),
+      clock,
       clis,
       ssh,
       tailscale: new StaticTailscale(options.peers),
@@ -72,6 +77,8 @@ export function createTestServer(options: TestServerOptions = {}) {
       releaseAssets,
       desktopApps,
       herdr,
+      tokenLogs,
+      priceSource,
     },
     {
       paths,
@@ -98,6 +105,9 @@ export function createTestServer(options: TestServerOptions = {}) {
     releaseAssets,
     desktopApps,
     herdr,
+    tokenLogs,
+    priceSource,
+    clock,
     paths,
   };
 }

@@ -9,6 +9,8 @@ import { createSessionService, type SessionService } from '@/modules/sessions/ap
 import { createThemeService, type ThemeService } from '@/modules/themes/app/services/ThemeService';
 import { createThreadService, type ThreadService } from '@/modules/threads/app/services/ThreadService';
 import { createProviderCliService, type ProviderCliService } from '@/modules/updates/app/services/ProviderCliService';
+import { createLimitsService, type LimitsService } from '@/modules/usage/app/services/LimitsService';
+import { createTokensService, type TokensService } from '@/modules/usage/app/services/TokensService';
 import { createUsageService, type UsageService } from '@/modules/usage/app/services/UsageService';
 import { createToastService, type ToastService } from '@/shared/app/services/ToastService';
 
@@ -21,6 +23,8 @@ export type AppService = ThemeService &
   AccountService &
   MachineService &
   UsageService &
+  LimitsService &
+  TokensService &
   ProviderCliService &
   ToastService;
 
@@ -38,6 +42,8 @@ export const useApp = create<AppService>()(
       createAccountService(...args),
       createMachineService(...args),
       createUsageService(...args),
+      createLimitsService(...args),
+      createTokensService(...args),
       createProviderCliService(...args),
       createToastService(...args)
     )

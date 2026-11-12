@@ -1,7 +1,11 @@
 import { LoginState } from '@favo/contracts/rpc/views';
 import { isSameDirectory } from '@favo/domain/directories/directory-input';
 import { ProviderId } from '@favo/domain/providers/provider';
-import { NoSubscriptionLimitsMessage, UsageUnavailableReason, unavailableUsage } from '@favo/domain/usage/seat-usage';
+import {
+  LimitsUnavailableReason,
+  NoSubscriptionLimitsMessage,
+  unavailableLimits,
+} from '@favo/domain/usage/seat-limits';
 import {
   type LoginContext,
   ProviderCli,
@@ -9,8 +13,8 @@ import {
   type ProviderSession,
   type ThreadSearch,
 } from '@/modules/providers/gateways/provider-cli';
+import { type CodexRateLimits, codexLimitsOf } from '@/modules/providers/utils/codex-limits';
 import { RolloutHeadBytes, rolloutThreadOf } from '@/modules/providers/utils/codex-rollout';
-import { type CodexRateLimits, codexUsageOf } from '@/modules/providers/utils/codex-usage';
 import type { FileSystem } from '@/modules/system/gateways/file-system';
 import type { ProcessRunner } from '@/modules/system/gateways/process-runner';
 
@@ -19,7 +23,7 @@ const QuestionId = 2;
 const ConversationTimeoutMs = 8_000;
 const StatusTimeoutMs = 10_000;
 const DateFolderLevels = 3;
-const UsageTimeoutMs = 10_000;
+const LimitsTimeoutMs = 10_000;
 const NewestRollouts = 40;
 const Greeting = [
   { id: 1, method: 'initialize', params: { clientInfo: { name: 'favo', version: '0' } } },
@@ -31,7 +35,7 @@ export class CodexProviderCli extends ProviderCli {
 
   constructor(
     private readonly processes: ProcessRunner,
-    private readonly usageTimeoutMs = UsageTimeoutMs
+    private readonly limitsTimeoutMs = LimitsTimeoutMs
   ) {
     super();
   }
@@ -48,7 +52,7 @@ export class CodexProviderCli extends ProviderCli {
     return ['logout'];
   }
 
-  override usageEnvironment() {
+  override limitsEnvironment() {
     return { env: {}, unsetEnv: ['CODEX_HOME'] };
   }
 
@@ -61,22 +65,22 @@ export class CodexProviderCli extends ProviderCli {
     });
   }
 
-  override async usage(session: ProviderSession, checkedAt: string) {
+  override async limits(session: ProviderSession, checkedAt: string) {
     const { binary, env, cwd } = session;
     const server = this.processes.open({ command: binary, args: ['app-server'], env, cwd });
     const question = { id: QuestionId, method: 'account/rateLimits/read' };
-    const answer = await this.ask(server, [...Greeting, question], usageAnswerOf, this.usageTimeoutMs);
-    if (!answer) return unavailableUsage(checkedAt, UsageUnavailableReason.probeFailed, 'Codex did not answer.');
-    if (answer.error) return this.refusedUsage(session, checkedAt);
-    return codexUsageOf(answer.result, checkedAt);
+    const answer = await this.ask(server, [...Greeting, question], limitsAnswerOf, this.limitsTimeoutMs);
+    if (!answer) return unavailableLimits(checkedAt, LimitsUnavailableReason.probeFailed, 'Codex did not answer.');
+    if (answer.error) return this.refusedLimits(session, checkedAt);
+    return codexLimitsOf(answer.result, checkedAt);
   }
 
-  private async refusedUsage(session: ProviderSession, checkedAt: string) {
+  private async refusedLimits(session: ProviderSession, checkedAt: string) {
     const login = await this.readAccount(session);
     if (login?.identity === ApiKeyAccount) {
-      return unavailableUsage(checkedAt, UsageUnavailableReason.unsupported, NoSubscriptionLimitsMessage);
+      return unavailableLimits(checkedAt, LimitsUnavailableReason.unsupported, NoSubscriptionLimitsMessage);
     }
-    return unavailableUsage(checkedAt, UsageUnavailableReason.probeFailed, 'Codex could not read usage.');
+    return unavailableLimits(checkedAt, LimitsUnavailableReason.probeFailed, 'Codex could not read usage.');
   }
 
   private async readAccount(session: ProviderSession) {
@@ -102,7 +106,7 @@ export class CodexProviderCli extends ProviderCli {
 type AccountRead = { account?: { type?: string; email?: string; planType?: string } | null };
 type AppServerMessage<Result> = { id?: number; result?: Result; error?: { message?: string } } | null;
 
-function usageAnswerOf(message: AppServerMessage<CodexRateLimits>) {
+function limitsAnswerOf(message: AppServerMessage<CodexRateLimits>) {
   return message?.id === QuestionId ? message : undefined;
 }
 

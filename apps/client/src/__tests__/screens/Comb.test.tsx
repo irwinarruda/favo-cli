@@ -638,12 +638,14 @@ describe('adding a machine', () => {
   });
   test('offers to update every provider CLI, and asks first', async () => {
     const { app, press, captureCharFrame, waitFor } = await open();
+    mockDb.providerUpdateOutcomes = { local: {}, devbox: {} };
     await press('P');
     expect(captureCharFrame()).toContain('Update the provider CLIs on every machine?');
     expect(mockDb.providerUpdateStarts).toEqual([]);
     await press('y');
     await waitFor(() => mockDb.providerUpdateStarts.length === 2);
     expect(app.state.isProviderClisOpen).toBe(true);
+    await waitFor(() => !app.state.isUpdatingProviderClis);
   });
   test('says favo goes first on a machine that runs an older one', async () => {
     const { app, press, captureCharFrame, flush, renderOnce } = await open();

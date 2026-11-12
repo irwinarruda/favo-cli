@@ -32,6 +32,12 @@ const StandardConfig = [
   '--title=favo',
 ];
 
+const CommandTheme = { themeId: 'honey', keys: [] };
+const CommandScenes: Record<string, string[]> = {
+  'favo-usage-tokens-cli': ['usage', '--tokens'],
+  'favo-usage-cost-cli': ['usage', '--cost'],
+};
+
 async function waitFor<T>(what: string, read: () => Promise<T | undefined> | T | undefined) {
   const deadline = Date.now() + ReadyTimeoutMs;
   while (Date.now() < deadline) {
@@ -84,8 +90,12 @@ async function isSameImage(file: string, shot: string) {
 
 async function capture(name: string, shot: string, readyFile: string, config: string[]) {
   const scene = Scenes[name];
-  if (!scene) throw new Error(`No scene called ${name}. Scenes: ${Object.keys(Scenes).join(', ')}`);
-  const colors = windowColorsOf(scene);
+  const args = CommandScenes[name];
+  if (!scene && !args) throw new Error(`No scene called ${name}. Scenes: ${SceneNames.join(', ')}`);
+  const colors = windowColorsOf(scene ?? CommandTheme);
+  const command = args
+    ? `${process.execPath} scripts/cli-scene.ts ${readyFile} ${args.join(' ')}`
+    : `${process.execPath} apps/client/src/dev.tsx ${name} ${readyFile}`;
   rmSync(readyFile, { force: true });
   const launch = Bun.spawn(
     [
@@ -99,7 +109,7 @@ async function capture(name: string, shot: string, readyFile: string, config: st
       `--background=${colors.background}`,
       `--foreground=${colors.text}`,
       `--working-directory=${process.cwd()}`,
-      `--command=${process.execPath} apps/client/src/dev.tsx ${name} ${readyFile}`,
+      `--command=${command}`,
     ],
     { stdout: 'ignore', stderr: 'ignore' }
   );
@@ -135,9 +145,10 @@ async function shoot(name: string, outputFolder: string, workFolder: string, scr
   console.log(`changed   ${file}`);
 }
 
+const SceneNames = [...Object.keys(Scenes), ...Object.keys(CommandScenes)];
 const outputFolder = process.env.FAVO_SCREENSHOTS_DIR ?? 'docs/assets';
 const requested = process.argv.slice(2);
-const names = requested.length > 0 ? requested : Object.keys(Scenes);
+const names = requested.length > 0 ? requested : SceneNames;
 const screen = await screenConfig();
 const workFolder = mkdtempSync(join(tmpdir(), 'favo-screenshots-'));
 mkdirSync(outputFolder, { recursive: true });

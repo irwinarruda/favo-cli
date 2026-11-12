@@ -1,6 +1,6 @@
 import type { LoginState } from '@favo/contracts/rpc/views';
 import type { ProviderId } from '@favo/domain/providers/provider';
-import { type SeatUsage, UsageUnavailableReason, unavailableUsage } from '@favo/domain/usage/seat-usage';
+import { LimitsUnavailableReason, type SeatLimits, unavailableLimits } from '@favo/domain/usage/seat-limits';
 import type { FileSystem } from '@/modules/system/gateways/file-system';
 import type { PipedProcess } from '@/modules/system/gateways/process-runner';
 
@@ -31,12 +31,12 @@ export abstract class ProviderCli {
     return { env: {}, unsetEnv: [] };
   }
 
-  usageEnvironment(current: Record<string, string | undefined>) {
+  limitsEnvironment(current: Record<string, string | undefined>) {
     return this.launchEnvironment(current);
   }
 
-  async usage(_session: ProviderSession, checkedAt: string): Promise<SeatUsage> {
-    return unavailableUsage(checkedAt, UsageUnavailableReason.unsupported);
+  async limits(_session: ProviderSession, checkedAt: string): Promise<SeatLimits> {
+    return unavailableLimits(checkedAt, LimitsUnavailableReason.unsupported);
   }
 
   async recentThreads(_search: ThreadSearch, _fileSystem: FileSystem): Promise<FoundThread[]> {

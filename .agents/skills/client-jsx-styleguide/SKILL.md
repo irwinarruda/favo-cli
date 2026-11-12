@@ -8,7 +8,7 @@ description: Always load when creating or changing OpenTUI React views in apps/c
 
 ## Rules
 
-- A screen is a folder with `index.tsx`; private components are siblings. Promote to `shared/components` only when another screen uses it and it has no domain meaning.
+- A screen is a folder with `index.tsx`; private components are siblings. Promote to `shared/components` only when another screen uses it and it has no domain meaning. A view two screens of one module share, with domain meaning, goes in that module's `components/`.
 - Select narrowly: `useApp((state) => state.selectedSeat)`. Never the whole store, never `getState()` in a component.
 - Handlers are `on{Name}{Event}`. Wrap at the binding site: `onMouseDown={error.handle(onSeatClick)}`.
 - Component order: variables, computed values, functions, effects, then a blank line and `return`. No empty lines inside JSX.
