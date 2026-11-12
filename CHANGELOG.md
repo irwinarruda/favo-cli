@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-12
+
 ### Fixed
 
 - Tokens, cost and sessions are no longer counted twice when two accounts on one machine can reach the same session log, through a link or a copy of a folder or a thread. A log is now counted once, for the account that holds the real file, and a request or a Codex session that sits in two accounts goes to the one whose file is older. Your totals may go down after this update: on its first count, favo forgets what 0.14.0 stored for the accounts that had the problem and counts them again from their logs. To see if you had it, run `find ~/.favo/accounts/*/claude/projects -type l | wc -l`: anything above zero means one account was counted too high.
@@ -178,7 +180,8 @@
 - A TUI that shows every machine, account and login, plus a command for everything it does.
 - Native on macOS, Linux and Windows, installed with `npm install --global favo-cli`.
 
-[Unreleased]: https://github.com/irwinarruda/favo-cli/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/irwinarruda/favo-cli/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/irwinarruda/favo-cli/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/irwinarruda/favo-cli/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/irwinarruda/favo-cli/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/irwinarruda/favo-cli/compare/v0.11.0...v0.12.0
