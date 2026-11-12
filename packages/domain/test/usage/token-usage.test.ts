@@ -72,25 +72,71 @@ describe('rows by hour', () => {
   });
 
   it('counts a session that spans two hours once', () => {
-    const ledger = createTokenLedger();
+    const ledger = createTokenLedger('work');
     for (const each of [entry(5, 'a'), entry(50, 'a'), entry(70, 'a'), entry(75, 'b')]) addTokenEntry(ledger, each);
-    const rows = tokenRowsOf(ledger, 'work', 'claude');
+    const rows = tokenRowsOf(ledger, 'claude');
     expect(rows.map(({ hour, sessions, output }) => [hour.slice(11, 13), sessions, output])).toEqual([
       ['14', 1, 8],
       ['15', 1, 8],
     ]);
   });
   it('does not count a session for entries that name none', () => {
-    const ledger = createTokenLedger();
+    const ledger = createTokenLedger('work');
     addTokenEntry(ledger, entry(5, ''));
-    expect(tokenRowsOf(ledger, 'work', 'claude')[0]?.sessions).toBe(0);
+    expect(tokenRowsOf(ledger, 'claude')[0]?.sessions).toBe(0);
   });
   it('never merges entries that carry no key', () => {
+    const ledger = createTokenLedger('work');
+    addTokenEntry(ledger, entry(5, 'a'));
+    addTokenEntry(ledger, entry(5, 'a'));
+    addTokenEntry(ledger, entry(6, 'a', 'same'));
+    addTokenEntry(ledger, entry(6, 'a', 'same'));
+    expect(tokenRowsOf(ledger, 'claude')[0]?.output).toBe(12);
+  });
+});
+
+describe('a request two accounts hold', () => {
+  const entry = (output: number, key?: string) => ({
+    key,
+    at: Date.parse('2026-11-10T14:05:00.000Z'),
+    session: 'a',
+    model: 'claude-test-1',
+    input: 1,
+    cacheRead: 2,
+    cacheWrite: 3,
+    output,
+  });
+
+  function ledgerOf(...copies: [account: string, createdAt: number | undefined, output: number, key?: string][]) {
     const ledger = createTokenLedger();
-    addTokenEntry(ledger, entry(5, 'a'));
-    addTokenEntry(ledger, entry(5, 'a'));
-    addTokenEntry(ledger, entry(6, 'a', 'same'));
-    addTokenEntry(ledger, entry(6, 'a', 'same'));
-    expect(tokenRowsOf(ledger, 'work', 'claude')[0]?.output).toBe(12);
+    for (const [account, createdAt, output, key = 'same'] of copies) {
+      ledger.source = { account, createdAt };
+      addTokenEntry(ledger, entry(output, key));
+    }
+    return ledger;
+  }
+
+  it('is counted once, with the largest numbers, for the account whose file is older', () => {
+    const ledger = ledgerOf(['personal', 300, 4], ['work', 200, 9], ['side', 250, 1]);
+    expect(tokenRowsOf(ledger, 'claude')).toMatchObject([{ account: 'work', output: 9, sessions: 1 }]);
+    expect([...ledger.repeatedAccounts].toSorted()).toEqual(['personal', 'side']);
+  });
+  it('stays with the first account in favo order when the file system cannot say which is older', () => {
+    const ledger = ledgerOf(['personal', undefined, 4], ['work', 200, 9]);
+    expect(tokenRowsOf(ledger, 'claude')).toMatchObject([{ account: 'personal', output: 9 }]);
+    expect([...ledger.repeatedAccounts]).toEqual(['work']);
+  });
+  it('names no account when the copies sit in one account', () => {
+    const ledger = ledgerOf(['work', 300, 4], ['work', 200, 9]);
+    expect(ledger.repeatedAccounts.size).toBe(0);
+  });
+  it('forgets the stored rows of the seats that repeated a log when the reader changes, and only then', () => {
+    const stored = [rowOf(8, { output: 999 }), rowOf(8, { account: 'personal', output: 999 })];
+    const input = { stored, fresh: [rowOf(10)], repeatedSeats: [{ account: 'work', provider: 'claude' as const }] };
+    expect(keepTokenRows({ ...input, isSameReader: false }).map(({ account }) => account)).toEqual([
+      'personal',
+      'work',
+    ]);
+    expect(keepTokenRows({ ...input, isSameReader: true })).toHaveLength(3);
   });
 });

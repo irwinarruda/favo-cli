@@ -4,7 +4,7 @@ import { ProviderId } from '#domain/providers/provider';
 const HourMs = 3_600_000;
 const Count = z.number().int().min(0);
 
-export const TokenUsageVersion = 1;
+export const TokenUsageVersion = 2;
 export const MaximumTokenCount = 1_000_000_000_000;
 export const TokenUsageFreshForMs = 24 * HourMs;
 export const TokenProviders: ProviderId[] = [ProviderId.claude, ProviderId.codex];
@@ -38,25 +38,45 @@ export type TokenEntry = TokenCounts & {
   model: string;
 };
 
-export type TokenLedger = { entries: Map<string, TokenEntry>; skipped: number };
+export type TokenSource = { account: string; createdAt?: number };
 
-export function createTokenLedger(): TokenLedger {
-  return { entries: new Map(), skipped: 0 };
+export type TokenSeat = Pick<TokenUsageRow, 'account' | 'provider'>;
+
+export type TokenLedger = {
+  entries: Map<string, TokenEntry & TokenSource>;
+  skipped: number;
+  source: TokenSource;
+  repeatedAccounts: Set<string>;
+};
+
+export function createTokenLedger(account = ''): TokenLedger {
+  return { entries: new Map(), skipped: 0, source: { account }, repeatedAccounts: new Set() };
 }
 
-export function addTokenEntry({ entries }: TokenLedger, entry: TokenEntry) {
+export function isCreatedBefore(left: TokenSource, right: TokenSource) {
+  return left.createdAt !== undefined && right.createdAt !== undefined && left.createdAt < right.createdAt;
+}
+
+export function addTokenEntry(ledger: TokenLedger, entry: TokenEntry) {
+  const { entries, source } = ledger;
   const key = entry.key ?? `#${entries.size}`;
   const held = entries.get(key);
   if (!held) {
-    entries.set(key, entry);
+    entries.set(key, { ...entry, account: source.account, createdAt: source.createdAt });
     return;
   }
   const first = entry.at < held.at ? entry : held;
+  const owner = isCreatedBefore(source, held) ? source : held;
+  if (held.account !== source.account) {
+    ledger.repeatedAccounts.add(owner === held ? source.account : held.account);
+  }
   entries.set(key, {
     key,
     at: first.at,
     session: first.session,
     model: first.model,
+    account: owner.account,
+    createdAt: owner.createdAt,
     input: Math.max(held.input, entry.input),
     cacheRead: Math.max(held.cacheRead, entry.cacheRead),
     cacheWrite: Math.max(held.cacheWrite, entry.cacheWrite),
@@ -83,12 +103,12 @@ export function processedTokensOf({ input, cacheRead, cacheWrite, output }: Toke
   return input + cacheRead + cacheWrite + output;
 }
 
-export function tokenRowsOf(ledger: TokenLedger, account: string, provider: ProviderId) {
+export function tokenRowsOf(ledger: TokenLedger, provider: ProviderId) {
   const rows = new Map<string, TokenUsageRow>();
-  const firstRequests = new Map<string, TokenEntry>();
-  function rowOf({ at, model }: TokenEntry) {
+  const firstRequests = new Map<string, TokenEntry & TokenSource>();
+  function rowOf({ at, model, account }: TokenEntry & TokenSource) {
     const hour = hourOf(at);
-    const key = `${hour}\n${model}`;
+    const key = `${hour}\n${account}\n${model}`;
     const held = rows.get(key);
     if (held) return held;
     const row = { hour, account, provider, model, input: 0, cacheRead: 0, cacheWrite: 0, output: 0, sessions: 0 };
@@ -108,10 +128,17 @@ export function tokenRowsOf(ledger: TokenLedger, account: string, provider: Prov
   return sortTokenRows([...rows.values()]);
 }
 
-export function keepTokenRows(input: { stored: TokenUsageRow[]; fresh: TokenUsageRow[]; isSameReader: boolean }) {
-  const { stored, fresh, isSameReader } = input;
+export function keepTokenRows(input: {
+  stored: TokenUsageRow[];
+  fresh: TokenUsageRow[];
+  isSameReader: boolean;
+  repeatedSeats?: TokenSeat[];
+}) {
+  const { stored, fresh, isSameReader, repeatedSeats = [] } = input;
   const oldest = oldestHours(fresh);
+  const rebuilt = new Set(isSameReader ? [] : repeatedSeats.map(seatOf));
   const kept = stored.filter((row) => {
+    if (rebuilt.has(seatOf(row))) return false;
     const firstOnDisk = oldest.get(seatOf(row));
     return isSameReader || firstOnDisk === undefined || row.hour < firstOnDisk;
   });
@@ -143,7 +170,7 @@ function oldestHours(rows: TokenUsageRow[]) {
   return oldest;
 }
 
-function seatOf({ account, provider }: TokenUsageRow) {
+function seatOf({ account, provider }: TokenSeat) {
   return `${account}\n${provider}`;
 }
 

@@ -1,7 +1,8 @@
 import { createReadStream } from 'node:fs';
-import { open, readdir, readFile, stat } from 'node:fs/promises';
+import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { createZstdDecompress } from 'node:zlib';
 import { DomainError, DomainErrorCode } from '@favo/domain/shared/domain-error';
+import type { TokenLogFolder } from '@favo/domain/usage/token-log-files';
 import { TokenLogs } from '@/modules/usage/gateways/token-logs';
 import { ZstdFrameHeaderBytes, zstdContentSizeOf } from '@/modules/usage/utils/zstd-frame';
 
@@ -19,12 +20,11 @@ export class DiskTokenLogs extends TokenLogs {
   }
 
   async files(folder: string, suffixes: string[]) {
-    const names = await readdir(folder, { recursive: true }).catch(() => []);
-    return names
-      .map((name) => name.replaceAll('\\', '/'))
-      .filter((name) => suffixes.some((suffix) => name.endsWith(suffix)))
-      .map((name) => `${folder}/${name}`)
-      .toSorted();
+    const found: TokenLogFolder = { files: [], brokenLinks: 0 };
+    const root = await realPathOf(folder);
+    if (root === undefined) return found;
+    await this.walk({ path: folder, realPath: root }, suffixes, found, new Set());
+    return { ...found, root, files: found.files.toSorted((left, right) => (left.path < right.path ? -1 : 1)) };
   }
 
   async read(path: string, markers: string[], onLine: (line: string) => void) {
@@ -48,6 +48,37 @@ export class DiskTokenLogs extends TokenLogs {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new DomainError(DomainErrorCode.logUnreadable, `Could not read ${path}: ${reason}`);
+    }
+  }
+
+  private async walk(
+    folder: { path: string; realPath: string },
+    suffixes: string[],
+    found: TokenLogFolder,
+    walked: Set<string>
+  ) {
+    if (walked.has(folder.realPath)) return;
+    walked.add(folder.realPath);
+    const entries = await readdir(folder.realPath, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const path = `${folder.path}/${entry.name}`;
+      const direct = `${folder.realPath}/${entry.name}`;
+      const isLink = entry.isSymbolicLink();
+      const isLog = suffixes.some((suffix) => entry.name.endsWith(suffix));
+      if (!isLink && entry.isDirectory()) {
+        await this.walk({ path, realPath: direct }, suffixes, found, walked);
+        continue;
+      }
+      if (!isLink && !isLog) continue;
+      const realPath = isLink ? await realPathOf(direct) : direct;
+      const info = realPath === undefined ? undefined : await stat(realPath).catch(() => undefined);
+      if (realPath === undefined || info === undefined) {
+        found.brokenLinks += 1;
+        continue;
+      }
+      if (info.isDirectory()) await this.walk({ path, realPath }, suffixes, found, walked);
+      else if (isLog)
+        found.files.push({ path, realPath, createdAt: info.birthtimeMs > 0 ? info.birthtimeMs : undefined });
     }
   }
 
@@ -78,6 +109,11 @@ export class DiskTokenLogs extends TokenLogs {
       await file.close();
     }
   }
+}
+
+async function realPathOf(path: string) {
+  const real = await realpath(path).catch(() => undefined);
+  return real?.replaceAll('\\', '/');
 }
 
 function emit(line: Buffer, needles: Buffer[], onLine: (line: string) => void) {

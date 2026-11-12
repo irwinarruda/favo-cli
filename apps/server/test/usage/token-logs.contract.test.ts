@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import { DomainErrorCode } from '@favo/domain/shared/domain-error';
@@ -8,7 +8,7 @@ import { MemoryTokenLogs } from '@/modules/usage/gateways/memory.token-logs';
 import type { TokenLogs } from '@/modules/usage/gateways/token-logs';
 import { zstdContentSizeOf } from '@/modules/usage/utils/zstd-frame';
 
-const realRoot = mkdtempSync(`${tmpdir()}/favo-logs-`).replaceAll('\\', '/');
+const realRoot = realpathSync(mkdtempSync(`${tmpdir()}/favo-logs-`)).replaceAll('\\', '/');
 afterAll(() => rmSync(realRoot, { recursive: true, force: true }));
 
 const Lines = ['{"type":"user","text":"hello"}', '{"type":"assistant","usage":1}', '{"usage":2,"note":"çã"}'];
@@ -21,19 +21,34 @@ function onDisk(wholeFileLimitBytes?: number, streamChunkBytes?: number) {
     const text = lines.join('\n');
     writeFileSync(path, path.endsWith('.zst') ? Bun.zstdCompressSync(Buffer.from(text)) : text);
   }
-  return { logs, write };
+  function link(path: string, target: string) {
+    mkdirSync(dirname(path), { recursive: true });
+    symlinkSync(target, path);
+  }
+  return { logs, write, link };
 }
 
 function inMemory() {
   const logs = new MemoryTokenLogs();
-  return { logs, write: (path: string, lines: string[]) => logs.write(path, lines) };
+  return {
+    logs,
+    write: (path: string, lines: string[]) => logs.write(path, lines),
+    link: (path: string, target: string) => logs.link(path, target),
+  };
 }
 
-const doubles: [string, () => { logs: TokenLogs; write(path: string, lines: string[]): void }, string][] = [
+type Double = { logs: TokenLogs; write(path: string, lines: string[]): void; link(path: string, target: string): void };
+
+const doubles: [string, () => Double, string][] = [
   ['disk, whole files', () => onDisk(), `${realRoot}/whole`],
   ['disk, in pieces', () => onDisk(64, 16), `${realRoot}/pieces`],
   ['memory', inMemory, '/logs'],
 ];
+
+async function pathsOf(logs: TokenLogs, folder: string, suffixes: string[]) {
+  const { files } = await logs.files(folder, suffixes);
+  return files.map(({ path }) => path);
+}
 
 async function linesOf(logs: TokenLogs, path: string, markers = ['"usage"']) {
   const lines: string[] = [];
@@ -48,14 +63,49 @@ describe.each(doubles)('token logs on %s', (_name, create, root) => {
     write(`${root}/list/a/deep/one.jsonl`, Lines);
     write(`${root}/list/a/three.jsonl.zst`, Lines);
     write(`${root}/list/a/notes.txt`, Lines);
-    expect(await logs.files(`${root}/list`, ['.jsonl'])).toEqual([
+    expect(await pathsOf(logs, `${root}/list`, ['.jsonl'])).toEqual([
       `${root}/list/a/deep/one.jsonl`,
       `${root}/list/b/two.jsonl`,
     ]);
-    expect(await logs.files(`${root}/list`, ['.jsonl', '.jsonl.zst'])).toHaveLength(3);
+    expect(await pathsOf(logs, `${root}/list`, ['.jsonl', '.jsonl.zst'])).toHaveLength(3);
   });
   it('lists nothing for a folder that is not there', async () => {
-    expect(await create().logs.files(`${root}/missing`, ['.jsonl'])).toEqual([]);
+    expect(await pathsOf(create().logs, `${root}/missing`, ['.jsonl'])).toEqual([]);
+  });
+  it.skipIf(process.platform === 'win32')('says where a linked log and a linked folder really live', async () => {
+    const { logs, write, link } = create();
+    write(`${root}/other/deep/one.jsonl`, Lines);
+    write(`${root}/other/two.jsonl`, Lines);
+    write(`${root}/linked/own.jsonl`, Lines);
+    link(`${root}/linked/file.jsonl`, `${root}/other/two.jsonl`);
+    link(`${root}/linked/folder`, `${root}/other/deep`);
+    const { root: listed, files, brokenLinks } = await logs.files(`${root}/linked`, ['.jsonl']);
+    expect(listed).toBe(`${root}/linked`);
+    expect(brokenLinks).toBe(0);
+    expect(files.map(({ path, realPath }) => [path, realPath])).toEqual([
+      [`${root}/linked/file.jsonl`, `${root}/other/two.jsonl`],
+      [`${root}/linked/folder/one.jsonl`, `${root}/other/deep/one.jsonl`],
+      [`${root}/linked/own.jsonl`, `${root}/linked/own.jsonl`],
+    ]);
+    expect(await linesOf(logs, `${root}/linked/folder/one.jsonl`)).toHaveLength(2);
+  });
+  it.skipIf(process.platform === 'win32')('lists a folder that is itself a link, under its real place', async () => {
+    const { logs, write, link } = create();
+    write(`${root}/disk/projects/one.jsonl`, Lines);
+    link(`${root}/seat/projects`, `${root}/disk/projects`);
+    const { root: listed, files } = await logs.files(`${root}/seat/projects`, ['.jsonl']);
+    expect(listed).toBe(`${root}/disk/projects`);
+    expect(files.map(({ path, realPath }) => [path, realPath])).toEqual([
+      [`${root}/seat/projects/one.jsonl`, `${root}/disk/projects/one.jsonl`],
+    ]);
+  });
+  it.skipIf(process.platform === 'win32')('counts a link that leads nowhere, and lists the rest', async () => {
+    const { logs, write, link } = create();
+    write(`${root}/broken/own.jsonl`, Lines);
+    link(`${root}/broken/gone.jsonl`, `${root}/nowhere/gone.jsonl`);
+    const { files, brokenLinks } = await logs.files(`${root}/broken`, ['.jsonl']);
+    expect(brokenLinks).toBe(1);
+    expect(files).toHaveLength(1);
   });
   it('hands over only the lines that carry a marker, whole', async () => {
     const { logs, write } = create();
@@ -78,6 +128,14 @@ describe.each(doubles)('token logs on %s', (_name, create, root) => {
 });
 
 describe('token logs on disk', () => {
+  it.skipIf(process.platform === 'win32')('walks a folder once when a link leads back into it', async () => {
+    const { logs, write, link } = onDisk();
+    write(`${realRoot}/loop/a/one.jsonl`, Lines);
+    link(`${realRoot}/loop/a/back`, `${realRoot}/loop`);
+    const { files } = await logs.files(`${realRoot}/loop`, ['.jsonl']);
+    expect(files.map(({ path }) => path)).toEqual([`${realRoot}/loop/a/one.jsonl`]);
+    expect(files[0]?.createdAt).toBeGreaterThan(0);
+  });
   it.each([undefined, 64])('reads a rollout Codex compressed with zstd (whole file limit %p)', async (limit) => {
     const { logs, write } = onDisk(limit);
     const path = `${realRoot}/zst-${limit}/rollout.jsonl.zst`;

@@ -25,9 +25,9 @@ function usageOf(input: number, cacheRead: number, cacheWrite: number, output: n
 }
 
 function read(...lines: string[]) {
-  const ledger = createTokenLedger();
+  const ledger = createTokenLedger('work');
   for (const line of lines) readClaudeTokenLine(ledger, line);
-  return { ledger, rows: tokenRowsOf(ledger, 'work', 'claude') };
+  return { ledger, rows: tokenRowsOf(ledger, 'claude') };
 }
 
 describe('a Claude Code log', () => {

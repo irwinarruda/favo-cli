@@ -35,10 +35,10 @@ function usageRecord(seconds: number, usage: Counters) {
 }
 
 function read(...lines: string[]) {
-  const ledger = createTokenLedger();
+  const ledger = createTokenLedger('personal');
   const rollout = createCodexRollout('rollout-a');
   for (const line of lines) readCodexTokenLine(ledger, rollout, line);
-  const rows = tokenRowsOf(ledger, 'personal', 'codex');
+  const rows = tokenRowsOf(ledger, 'codex');
   const sum = (field: 'input' | 'cacheRead' | 'cacheWrite' | 'output' | 'sessions') =>
     rows.reduce((total, row) => total + row[field], 0);
   return { ledger, rows, requests: ledger.entries.size, sum };

@@ -12,6 +12,8 @@ import { RpcRouter } from '@/shared/rpc/rpc-router';
 const ClaudeLogs = `${Home}/.claude/projects/-home-bee-hive`;
 const WorkLogs = `${Home}/.favo/accounts/work/claude/projects/-home-bee-hive`;
 const CodexLogs = `${Home}/.codex/sessions/2026/10/30`;
+const WorkCodexLogs = `${Home}/.favo/accounts/work/codex/sessions/2026/10/30`;
+const Rollout = 'rollout-2026-10-30T16-00-00-c.jsonl';
 
 function claudeLine(id: string, output: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -123,6 +125,135 @@ describe('reading tokens', () => {
   });
 });
 
+describe('a log two accounts can reach', () => {
+  async function serverWithWork() {
+    const server = serverWithLogs();
+    await server.client.call(createAccount, { name: 'work' });
+    return server;
+  }
+
+  async function rowsOfOneSeat() {
+    const { rows } = await serverWithLogs().client.call(readTokenUsage, { isFresh: true });
+    return rows;
+  }
+
+  it('counts a linked session once, for the account that holds the real file', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.link(`${WorkLogs}/one.jsonl`, `${ClaudeLogs}/one.jsonl`);
+    const usage = await client.call(readTokenUsage, { isFresh: true });
+    expect(usage).toMatchObject({ rows: await rowsOfOneSeat(), skippedRecords: 0 });
+    expect(tokenLogs.reads).toHaveLength(2);
+  });
+  it('skips a linked folder of another account with everything under it', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.link(`${Home}/.favo/accounts/work/claude/projects/linked`, `${Home}/.claude/projects`);
+    tokenLogs.link(WorkCodexLogs, CodexLogs);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows).toEqual(await rowsOfOneSeat());
+  });
+  it('reads a log outside every account once when two accounts link it', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.write('/mnt/backup/old.jsonl', [claudeLine('old', 9)]);
+    tokenLogs.link(`${ClaudeLogs}/old.jsonl`, '/mnt/backup/old.jsonl');
+    tokenLogs.link(`${WorkLogs}/old.jsonl`, '/mnt/backup/old.jsonl');
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows.filter(({ provider }) => provider === 'claude')).toMatchObject([{ account: 'personal', output: 109 }]);
+    expect(tokenLogs.reads.filter((path) => path.endsWith('old.jsonl'))).toHaveLength(1);
+  });
+  it('reads an account whose whole log folder is a link', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.link(`${Home}/.favo/accounts/work/claude/projects`, '/mnt/disk/projects');
+    tokenLogs.write('/mnt/disk/projects/-home-bee-hive/own.jsonl', [claudeLine('own', 5, { sessionId: 'session-w' })]);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows.find(({ account }) => account === 'work')).toMatchObject({ output: 5, sessions: 1 });
+  });
+  it('skips a link that leads nowhere, and says so', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.link(`${WorkLogs}/gone.jsonl`, '/mnt/backup/gone.jsonl');
+    const usage = await client.call(readTokenUsage, { isFresh: true });
+    expect(usage).toMatchObject({ rows: await rowsOfOneSeat(), skippedRecords: 1 });
+  });
+  it('counts a request copied into another account once, tokens and sessions', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.write(`${WorkLogs}/one.jsonl`, [claudeLine('one', 40), claudeLine('two', 60)]);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows).toEqual(await rowsOfOneSeat());
+  });
+  it('gives a copied request to the account whose file is older', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.write(`${ClaudeLogs}/one.jsonl`, [claudeLine('one', 40), claudeLine('two', 60)], 300);
+    tokenLogs.write(`${WorkLogs}/one.jsonl`, [claudeLine('one', 40), claudeLine('two', 60)], 200);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows.filter(({ provider }) => provider === 'claude')).toMatchObject([{ account: 'work', output: 100 }]);
+  });
+  it('keeps the largest numbers when one copy is partial', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.write(`${WorkLogs}/one.jsonl`, [claudeLine('two', 75)]);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows.filter(({ provider }) => provider === 'claude')).toMatchObject([{ account: 'personal', output: 115 }]);
+  });
+  it('counts a request that carries no id in each account, since nothing can compare it', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    const nameless = claudeLine('one', 8, {
+      requestId: undefined,
+      message: { ...claudeLine('one', 8).message, id: undefined },
+    });
+    tokenLogs.write(`${ClaudeLogs}/nameless.jsonl`, [nameless]);
+    tokenLogs.write(`${WorkLogs}/nameless.jsonl`, [nameless]);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows.filter(({ provider }) => provider === 'claude')).toMatchObject([
+      { account: 'personal', output: 108 },
+      { account: 'work', output: 8 },
+    ]);
+  });
+  it('counts a Codex rollout that sits in two accounts once', async () => {
+    const { client, tokenLogs } = await serverWithWork();
+    tokenLogs.write(`${WorkCodexLogs}/${Rollout}.zst`, codexRollout(70));
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows).toEqual(await rowsOfOneSeat());
+  });
+  it('forgets what an older favo counted twice, and only for the account that was wrong', async () => {
+    const { client, tokenLogs, fileSystem, paths } = await serverWithWork();
+    tokenLogs.link(`${WorkLogs}/one.jsonl`, `${ClaudeLogs}/one.jsonl`);
+    const own = { timestamp: '2026-10-30T18:05:00.000Z', sessionId: 'session-w' };
+    tokenLogs.write(`${WorkLogs}/own.jsonl`, [claudeLine('own', 5, own)]);
+    const [claude, codex] = await rowsOfOneSeat();
+    const august = '2026-08-05T10:00:00.000Z';
+    const record = {
+      version: 1,
+      readAt: '2026-10-30T00:00:00.000Z',
+      skippedRecords: 0,
+      rows: [
+        { ...claude!, hour: august, output: 7 },
+        claude,
+        codex,
+        { ...claude!, account: 'work', hour: august, output: 7 },
+        { ...claude!, account: 'work' },
+        { ...claude!, account: 'work', hour: '2026-10-30T18:00:00.000Z', output: 5 },
+      ],
+    };
+    await fileSystem.replaceText(paths.tokenUsageFile, JSON.stringify(record));
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows.map(({ account, hour, output }) => [account, hour.slice(5, 13), output])).toEqual([
+      ['personal', '08-05T10', 7],
+      ['personal', '10-30T14', 100],
+      ['personal', '10-30T16', 70],
+      ['work', '10-30T18', 5],
+    ]);
+  });
+  it('keeps every stored hour of a machine with no shared log when the reader changes', async () => {
+    const { client, tokenLogs, fileSystem, paths } = await serverWithWork();
+    tokenLogs.write(`${WorkLogs}/own.jsonl`, [claudeLine('own', 5, { sessionId: 'session-w' })]);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    const gone = { ...rows.find(({ account }) => account === 'work')!, hour: '2026-08-05T10:00:00.000Z' };
+    const record = { version: 1, readAt: '2026-10-30T00:00:00.000Z', skippedRecords: 0, rows: [...rows, gone] };
+    await fileSystem.replaceText(paths.tokenUsageFile, JSON.stringify(record));
+    const after = await client.call(readTokenUsage, { isFresh: true });
+    expect(after.rows).toHaveLength(rows.length + 1);
+    expect(after.rows).toEqual(expect.arrayContaining([...rows, gone]));
+  });
+});
+
 describe('the record', () => {
   it('is empty before the first read, and is not read just by asking for it', async () => {
     const { client, tokenLogs } = serverWithLogs();
@@ -135,7 +266,7 @@ describe('the record', () => {
     const reads = tokenLogs.reads.length;
     expect(await client.call(readTokenUsage, { isFresh: false })).toEqual(read);
     expect(tokenLogs.reads).toHaveLength(reads);
-    expect(JSON.parse((await fileSystem.readText(paths.tokenUsageFile))!)).toMatchObject({ version: 1 });
+    expect(JSON.parse((await fileSystem.readText(paths.tokenUsageFile))!)).toMatchObject({ version: 2 });
   });
   it('keeps an hour whose logs are gone', async () => {
     const { client, tokenLogs } = serverWithLogs();

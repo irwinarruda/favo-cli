@@ -1,4 +1,3 @@
-import type { SeatView } from '@favo/contracts/rpc/views';
 import { ProviderId } from '@favo/domain/providers/provider';
 import { DomainError } from '@favo/domain/shared/domain-error';
 import { ClaudeTokenFiles, ClaudeTokenMarkers, readClaudeTokenLine } from '@favo/domain/usage/claude-token-log';
@@ -9,6 +8,7 @@ import {
   createCodexRollout,
   readCodexTokenLine,
 } from '@favo/domain/usage/codex-token-log';
+import { type SeatTokenLog, tokenLogsToRead } from '@favo/domain/usage/token-log-files';
 import {
   createTokenLedger,
   keepTokenRows,
@@ -59,34 +59,46 @@ export class TokensService {
     const seats = accounts.flatMap((account) =>
       account.seats.filter(({ provider }) => TokenProviders.includes(provider))
     );
-    const fresh = [];
+    const listed = [];
     let skippedRecords = 0;
-    for (const seat of seats) {
+    for (const { account, provider, path } of seats) {
+      const { folder, suffixes } = provider === ProviderId.claude ? ClaudeTokenFiles : CodexTokenFiles;
+      const { root, files, brokenLinks } = await this.logs.files(`${path}/${folder}`, suffixes);
+      listed.push({ account, provider, root, files });
+      skippedRecords += brokenLinks;
+    }
+    const { logs, repeatedSeats } = tokenLogsToRead(listed);
+    const fresh = [];
+    for (const provider of TokenProviders) {
       const ledger = createTokenLedger();
-      if (seat.provider === ProviderId.claude) await this.readClaude(seat, ledger);
-      else await this.readCodex(seat, ledger);
-      fresh.push(...tokenRowsOf(ledger, seat.account, seat.provider));
+      const ofProvider = logs.filter((log) => log.provider === provider);
+      if (provider === ProviderId.claude) await this.readClaude(ofProvider, ledger);
+      else await this.readCodex(ofProvider, ledger);
+      fresh.push(...tokenRowsOf(ledger, provider));
       skippedRecords += ledger.skipped;
+      for (const account of ledger.repeatedAccounts) repeatedSeats.push({ account, provider });
     }
     const isSameReader = stored?.version === TokenUsageVersion;
-    const rows = keepTokenRows({ stored: stored?.rows ?? [], fresh, isSameReader });
+    const rows = keepTokenRows({ stored: stored?.rows ?? [], fresh, isSameReader, repeatedSeats });
     const usage = { readAt: this.clock.now().toISOString(), rows, skippedRecords };
     await this.record.save({ version: TokenUsageVersion, ...usage });
     return usage;
   }
 
-  private async readClaude({ path }: SeatView, ledger: TokenLedger) {
-    const files = await this.logs.files(`${path}/${ClaudeTokenFiles.folder}`, ClaudeTokenFiles.suffixes);
-    for (const file of files) {
-      await this.readFile(file, ClaudeTokenMarkers, ledger, (line) => readClaudeTokenLine(ledger, line));
+  private async readClaude(logs: SeatTokenLog[], ledger: TokenLedger) {
+    for (const { path, account, createdAt } of logs) {
+      ledger.source = { account, createdAt };
+      await this.readFile(path, ClaudeTokenMarkers, ledger, (line) => readClaudeTokenLine(ledger, line));
     }
   }
 
-  private async readCodex({ path }: SeatView, ledger: TokenLedger) {
-    const files = await this.logs.files(`${path}/${CodexTokenFiles.folder}`, CodexTokenFiles.suffixes);
-    for (const { file, session } of codexRolloutsOf(files)) {
+  private async readCodex(logs: SeatTokenLog[], ledger: TokenLedger) {
+    const { rollouts, repeatedAccounts } = codexRolloutsOf(logs);
+    for (const account of repeatedAccounts) ledger.repeatedAccounts.add(account);
+    for (const { path, session, account, createdAt } of rollouts) {
       const rollout = createCodexRollout(session);
-      await this.readFile(file, CodexTokenMarkers, ledger, (line) => readCodexTokenLine(ledger, rollout, line));
+      ledger.source = { account, createdAt };
+      await this.readFile(path, CodexTokenMarkers, ledger, (line) => readCodexTokenLine(ledger, rollout, line));
     }
   }
 

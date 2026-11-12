@@ -1,5 +1,12 @@
 import { parseJson } from '#domain/shared/parse-json';
-import { addTokenEntry, MaximumTokenCount, type TokenLedger, timeOf } from '#domain/usage/token-usage';
+import {
+  addTokenEntry,
+  isCreatedBefore,
+  MaximumTokenCount,
+  type TokenLedger,
+  type TokenSource,
+  timeOf,
+} from '#domain/usage/token-usage';
 
 const ForkCopyMaximumGapMs = 1_000;
 
@@ -38,12 +45,23 @@ export type CodexRollout = {
   unreported?: CodexRequest[];
 };
 
-export function codexRolloutsOf(files: string[]) {
+export function codexRolloutsOf<Log extends TokenSource & { path: string }>(logs: Log[]) {
   const [plainSuffix, compressedSuffix] = CodexTokenFiles.suffixes as [string, string];
-  const plain = new Set(files.filter((file) => file.endsWith(plainSuffix)));
-  return files
-    .filter((file) => plain.has(file) || !plain.has(file.slice(0, -compressedSuffix.length + plainSuffix.length)))
-    .map((file) => ({ file, session: file.slice(file.lastIndexOf('/') + 1) }));
+  const packedLength = compressedSuffix.length - plainSuffix.length;
+  const plain = new Set(logs.map(({ path }) => path).filter((path) => path.endsWith(plainSuffix)));
+  const rollouts = new Map<string, Log & { session: string }>();
+  const repeatedAccounts = new Set<string>();
+  for (const log of logs) {
+    const isPlain = plain.has(log.path);
+    if (!isPlain && plain.has(log.path.slice(0, -packedLength))) continue;
+    const session = log.path.slice(log.path.lastIndexOf('/') + 1);
+    const name = isPlain ? session : session.slice(0, -packedLength);
+    const held = rollouts.get(name);
+    const isFirst = !held || isCreatedBefore(log, held);
+    if (held && held.account !== log.account) repeatedAccounts.add(isFirst ? held.account : log.account);
+    if (isFirst) rollouts.set(name, { ...log, session });
+  }
+  return { rollouts: [...rollouts.values()], repeatedAccounts };
 }
 
 export function createCodexRollout(session: string): CodexRollout {
