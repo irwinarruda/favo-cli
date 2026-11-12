@@ -1,6 +1,6 @@
 {
   "name": "favo-cli",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "favo keeps several AI subscriptions on every computer you own. Downloads the self-contained executable for this platform from the GitHub Release.",
   "keywords": [
     "favo",

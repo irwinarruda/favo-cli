@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-12
+
 ### Added
 
 - See how many tokens every seat used, and what they would cost at API list prices. The Usage screen (`u`) now has three pages, Limits, Tokens and Cost: `l` `t` `c` or `tab` change the page, `1` to `5` or the arrows pick the last 24 hours, 7, 30 or 90 days or all time, and `b` switches the table between models and days. Each page shows the total, the shape of the period, and the split by provider, account, machine and model. It covers Claude Code and Codex.
@@ -171,7 +173,8 @@
 - A TUI that shows every machine, account and login, plus a command for everything it does.
 - Native on macOS, Linux and Windows, installed with `npm install --global favo-cli`.
 
-[Unreleased]: https://github.com/irwinarruda/favo-cli/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/irwinarruda/favo-cli/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/irwinarruda/favo-cli/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/irwinarruda/favo-cli/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/irwinarruda/favo-cli/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/irwinarruda/favo-cli/compare/v0.10.2...v0.11.0
