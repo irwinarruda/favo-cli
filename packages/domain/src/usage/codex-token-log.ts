@@ -45,23 +45,33 @@ export type CodexRollout = {
   unreported?: CodexRequest[];
 };
 
-export function codexRolloutsOf<Log extends TokenSource & { path: string }>(logs: Log[]) {
+export function codexRolloutsOf<Log extends TokenSource & { path: string }>(
+  logs: Log[],
+  owners: Map<string, string> = new Map()
+) {
   const [plainSuffix, compressedSuffix] = CodexTokenFiles.suffixes as [string, string];
   const packedLength = compressedSuffix.length - plainSuffix.length;
   const plain = new Set(logs.map(({ path }) => path).filter((path) => path.endsWith(plainSuffix)));
-  const rollouts = new Map<string, Log & { session: string }>();
+  const held = new Map<string, Log & { session: string }>();
   const repeatedAccounts = new Set<string>();
+  const sharedOwners = new Map<string, string>();
   for (const log of logs) {
     const isPlain = plain.has(log.path);
     if (!isPlain && plain.has(log.path.slice(0, -packedLength))) continue;
     const session = log.path.slice(log.path.lastIndexOf('/') + 1);
     const name = isPlain ? session : session.slice(0, -packedLength);
-    const held = rollouts.get(name);
-    const isFirst = !held || isCreatedBefore(log, held);
-    if (held && held.account !== log.account) repeatedAccounts.add(isFirst ? held.account : log.account);
-    if (isFirst) rollouts.set(name, { ...log, session });
+    const first = held.get(name);
+    const isFirst = !first || isCreatedBefore(log, first);
+    const chosen = isFirst ? { ...log, session } : first;
+    const account = owners.get(name) ?? chosen.account;
+    for (const other of [first?.account ?? log.account, log.account]) {
+      if (other !== account) repeatedAccounts.add(other);
+    }
+    if (owners.has(name) || (first && first.account !== log.account)) sharedOwners.set(name, account);
+    held.set(name, chosen);
   }
-  return { rollouts: [...rollouts.values()], repeatedAccounts };
+  const rollouts = [...held].map(([name, rollout]) => ({ ...rollout, account: owners.get(name) ?? rollout.account }));
+  return { rollouts, repeatedAccounts, sharedOwners };
 }
 
 export function createCodexRollout(session: string): CodexRollout {

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A request or a Codex session that sits in two accounts stays with the account favo first gave it to. Before, once Claude Code deleted the older log, the copy that was left counted again under the other account.
+
+### Changed
+
+- favo's own count in `~/.favo/usage/tokens.json` now also remembers which logs fed each hour, so a later fix to the counting can correct every hour whose logs are still on disk without losing the ones Claude Code already deleted. An older favo cannot read this file: if you go back to 0.14, move it away first.
+- A link in a log folder that leads to a file that is gone is skipped quietly. It no longer shows as a record that could not be read, because nothing is missing from the numbers.
+
 ## [0.14.1] - 2026-11-12
 
 ### Fixed

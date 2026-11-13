@@ -31,10 +31,7 @@ export class MemoryTokenLogs extends TokenLogs {
       .filter((path) => suffixes.some((suffix) => path.endsWith(suffix)))
       .toSorted()
       .map((path) => ({ path, realPath: this.realPathOf(path), createdAt: this.created.get(this.realPathOf(path)) }));
-    const brokenLinks = [...this.links.keys()].filter(
-      (link) => link.startsWith(`${folder}/`) && !paths.some((path) => path === link || path.startsWith(`${link}/`))
-    ).length;
-    return { root, files, brokenLinks };
+    return { root, files };
   }
 
   async read(path: string, markers: string[], onLine: (line: string) => void) {

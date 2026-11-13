@@ -79,9 +79,8 @@ describe.each(doubles)('token logs on %s', (_name, create, root) => {
     write(`${root}/linked/own.jsonl`, Lines);
     link(`${root}/linked/file.jsonl`, `${root}/other/two.jsonl`);
     link(`${root}/linked/folder`, `${root}/other/deep`);
-    const { root: listed, files, brokenLinks } = await logs.files(`${root}/linked`, ['.jsonl']);
+    const { root: listed, files } = await logs.files(`${root}/linked`, ['.jsonl']);
     expect(listed).toBe(`${root}/linked`);
-    expect(brokenLinks).toBe(0);
     expect(files.map(({ path, realPath }) => [path, realPath])).toEqual([
       [`${root}/linked/file.jsonl`, `${root}/other/two.jsonl`],
       [`${root}/linked/folder/one.jsonl`, `${root}/other/deep/one.jsonl`],
@@ -99,13 +98,12 @@ describe.each(doubles)('token logs on %s', (_name, create, root) => {
       [`${root}/seat/projects/one.jsonl`, `${root}/disk/projects/one.jsonl`],
     ]);
   });
-  it.skipIf(process.platform === 'win32')('counts a link that leads nowhere, and lists the rest', async () => {
+  it.skipIf(process.platform === 'win32')('skips a link that leads nowhere, and lists the rest', async () => {
     const { logs, write, link } = create();
     write(`${root}/broken/own.jsonl`, Lines);
     link(`${root}/broken/gone.jsonl`, `${root}/nowhere/gone.jsonl`);
-    const { files, brokenLinks } = await logs.files(`${root}/broken`, ['.jsonl']);
-    expect(brokenLinks).toBe(1);
-    expect(files).toHaveLength(1);
+    const { files } = await logs.files(`${root}/broken`, ['.jsonl']);
+    expect(files.map(({ path }) => path)).toEqual([`${root}/broken/own.jsonl`]);
   });
   it('hands over only the lines that carry a marker, whole', async () => {
     const { logs, write } = create();

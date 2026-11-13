@@ -8,12 +8,19 @@ import {
   createCodexRollout,
   readCodexTokenLine,
 } from '@favo/domain/usage/codex-token-log';
-import { type SeatTokenLog, tokenLogsToRead } from '@favo/domain/usage/token-log-files';
+import {
+  hoursOfGoneLogs,
+  type SeatTokenLog,
+  type TokenLogIndex,
+  tokenLogIndexOf,
+  tokenLogsToRead,
+} from '@favo/domain/usage/token-log-files';
 import {
   createTokenLedger,
   keepTokenRows,
   type MachineTokenUsage,
   type TokenLedger,
+  type TokenOwners,
   TokenProviders,
   TokenUsageVersion,
   tokenRowsOf,
@@ -60,54 +67,63 @@ export class TokensService {
       account.seats.filter(({ provider }) => TokenProviders.includes(provider))
     );
     const listed = [];
-    let skippedRecords = 0;
     for (const { account, provider, path } of seats) {
       const { folder, suffixes } = provider === ProviderId.claude ? ClaudeTokenFiles : CodexTokenFiles;
-      const { root, files, brokenLinks } = await this.logs.files(`${path}/${folder}`, suffixes);
+      const { root, files } = await this.logs.files(`${path}/${folder}`, suffixes);
       listed.push({ account, provider, root, files });
-      skippedRecords += brokenLinks;
     }
     const { logs, repeatedSeats } = tokenLogsToRead(listed);
     const fresh = [];
+    const read: TokenLogIndex = {};
+    const owners: TokenOwners = {};
+    let skippedRecords = 0;
     for (const provider of TokenProviders) {
-      const ledger = createTokenLedger();
+      const ledger = createTokenLedger('', stored?.owners[provider]);
       const ofProvider = logs.filter((log) => log.provider === provider);
       if (provider === ProviderId.claude) await this.readClaude(ofProvider, ledger);
       else await this.readCodex(ofProvider, ledger);
       fresh.push(...tokenRowsOf(ledger, provider));
+      Object.assign(read, tokenLogIndexOf(ledger, provider));
+      owners[provider] = Object.fromEntries(ledger.sharedOwners);
       skippedRecords += ledger.skipped;
       for (const account of ledger.repeatedAccounts) repeatedSeats.push({ account, provider });
     }
-    const isSameReader = stored?.version === TokenUsageVersion;
-    const rows = keepTokenRows({ stored: stored?.rows ?? [], fresh, isSameReader, repeatedSeats });
+    const { rows, goneHours } = keepTokenRows({
+      stored: stored?.rows ?? [],
+      storedVersion: stored?.version,
+      fresh,
+      goneHours: [...(stored?.goneHours ?? []), ...hoursOfGoneLogs(stored?.logs ?? {}, read)],
+      repeatedSeats,
+    });
     const usage = { readAt: this.clock.now().toISOString(), rows, skippedRecords };
-    await this.record.save({ version: TokenUsageVersion, ...usage });
+    await this.record.save({ version: TokenUsageVersion, ...usage, logs: read, goneHours, owners });
     return usage;
   }
 
   private async readClaude(logs: SeatTokenLog[], ledger: TokenLedger) {
-    for (const { path, account, createdAt } of logs) {
-      ledger.source = { account, createdAt };
-      await this.readFile(path, ClaudeTokenMarkers, ledger, (line) => readClaudeTokenLine(ledger, line));
+    for (const log of logs) {
+      await this.readFile(log, ClaudeTokenMarkers, ledger, (line) => readClaudeTokenLine(ledger, line));
     }
   }
 
   private async readCodex(logs: SeatTokenLog[], ledger: TokenLedger) {
-    const { rollouts, repeatedAccounts } = codexRolloutsOf(logs);
+    const { rollouts, repeatedAccounts, sharedOwners } = codexRolloutsOf(logs, ledger.owners);
     for (const account of repeatedAccounts) ledger.repeatedAccounts.add(account);
-    for (const { path, session, account, createdAt } of rollouts) {
-      const rollout = createCodexRollout(session);
-      ledger.source = { account, createdAt };
-      await this.readFile(path, CodexTokenMarkers, ledger, (line) => readCodexTokenLine(ledger, rollout, line));
+    for (const [name, account] of sharedOwners) ledger.sharedOwners.set(name, account);
+    for (const log of rollouts) {
+      const rollout = createCodexRollout(log.session);
+      await this.readFile(log, CodexTokenMarkers, ledger, (line) => readCodexTokenLine(ledger, rollout, line));
     }
   }
 
-  private async readFile(file: string, markers: string[], ledger: TokenLedger, onLine: (line: string) => void) {
+  private async readFile(log: SeatTokenLog, markers: string[], ledger: TokenLedger, onLine: (line: string) => void) {
     try {
-      await this.logs.read(file, markers, onLine);
+      ledger.source = { account: log.account, createdAt: log.createdAt, log: log.realPath };
+      await this.logs.read(log.path, markers, onLine);
     } catch (error) {
       if (!(error instanceof DomainError)) throw error;
       ledger.skipped += 1;
+      ledger.logHours.delete(log.realPath);
     }
   }
 }

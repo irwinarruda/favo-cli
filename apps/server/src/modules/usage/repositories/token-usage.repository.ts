@@ -1,11 +1,17 @@
 import { assertDomain, DomainErrorCode } from '@favo/domain/shared/domain-error';
 import { parseJson } from '@favo/domain/shared/parse-json';
-import { MachineTokenUsage } from '@favo/domain/usage/token-usage';
+import { TokenLogIndex } from '@favo/domain/usage/token-log-files';
+import { MachineTokenUsage, TokenHour, TokenOwners } from '@favo/domain/usage/token-usage';
 import { z } from 'zod';
 import type { FileSystem } from '@/modules/system/gateways/file-system';
 import type { FavoPaths } from '@/shared/config/favo-paths';
 
-const TokenUsageRecord = MachineTokenUsage.extend({ version: z.number() });
+const TokenUsageRecord = MachineTokenUsage.extend({
+  version: z.number(),
+  logs: TokenLogIndex.default({}),
+  goneHours: z.array(TokenHour).default([]),
+  owners: TokenOwners.default({}),
+});
 export type TokenUsageRecord = z.infer<typeof TokenUsageRecord>;
 
 export class TokenUsageRepository {

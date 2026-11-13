@@ -20,7 +20,7 @@ export class DiskTokenLogs extends TokenLogs {
   }
 
   async files(folder: string, suffixes: string[]) {
-    const found: TokenLogFolder = { files: [], brokenLinks: 0 };
+    const found: TokenLogFolder = { files: [] };
     const root = await realPathOf(folder);
     if (root === undefined) return found;
     await this.walk({ path: folder, realPath: root }, suffixes, found, new Set());
@@ -72,10 +72,7 @@ export class DiskTokenLogs extends TokenLogs {
       if (!isLink && !isLog) continue;
       const realPath = isLink ? await realPathOf(direct) : direct;
       const info = realPath === undefined ? undefined : await stat(realPath).catch(() => undefined);
-      if (realPath === undefined || info === undefined) {
-        found.brokenLinks += 1;
-        continue;
-      }
+      if (realPath === undefined || info === undefined) continue;
       if (info.isDirectory()) await this.walk({ path, realPath }, suffixes, found, walked);
       else if (isLog)
         found.files.push({ path, realPath, createdAt: info.birthtimeMs > 0 ? info.birthtimeMs : undefined });
