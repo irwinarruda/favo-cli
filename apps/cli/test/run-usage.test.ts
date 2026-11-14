@@ -253,7 +253,7 @@ describe('favo usage --tokens', () => {
   it('names the providers it does not count yet', async () => {
     const mac = withLogs();
     await mac.run('usage', '--tokens');
-    expect(mac.output()).toContain('\n  Antigravity, OpenCode  not counted yet\n');
+    expect(mac.output()).toContain('\n  Antigravity  not counted yet\n');
   });
   it('says how many records it could not read', async () => {
     const mac = withLogs();

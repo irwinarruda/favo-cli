@@ -165,7 +165,7 @@ describe('the Tokens page', () => {
   test('keeps the line of a machine that is down, and names what it does not count yet', async () => {
     const { captureCharFrame } = await openTokens();
     expect(captureCharFrame()).toMatch(/studio +offline/);
-    expect(captureCharFrame()).toContain('Antigravity, OpenCode  not counted yet');
+    expect(captureCharFrame()).toContain('Antigravity  not counted yet');
   });
   test('says what the tokens were, and how much came from cache', async () => {
     const { captureCharFrame } = await openTokens();

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- OpenCode is now counted on the Tokens and Cost pages and in `favo usage --tokens` and `--cost`, beside Claude Code and Codex. favo reads the numbers from OpenCode's own database on each machine, opened read-only, and never the text of a message. Reasoning tokens count as output. A model the price table does not know, such as the names a GitHub Copilot or Z.ai plan gives its models, is counted in tokens and shown as unpriced. Another machine starts counting OpenCode once its favo is updated.
+
 ## [0.15.0] - 2026-11-12
 
 ### Fixed

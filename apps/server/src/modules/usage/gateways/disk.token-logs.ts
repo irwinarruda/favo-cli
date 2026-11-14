@@ -1,8 +1,10 @@
+import { Database } from 'bun:sqlite';
 import { createReadStream } from 'node:fs';
 import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { createZstdDecompress } from 'node:zlib';
 import { DomainError, DomainErrorCode } from '@favo/domain/shared/domain-error';
 import type { TokenLogFolder } from '@favo/domain/usage/token-log-files';
+import type { TokenTable } from '@favo/domain/usage/token-usage';
 import { TokenLogs } from '@/modules/usage/gateways/token-logs';
 import { ZstdFrameHeaderBytes, zstdContentSizeOf } from '@/modules/usage/utils/zstd-frame';
 
@@ -10,20 +12,23 @@ const CompressedSuffix = '.zst';
 const LineBreak = 10;
 const WholeFileLimitBytes = 32 * 1024 * 1024;
 const StreamChunkBytes = 1024 * 1024;
+const LongestTurnMs = 50;
+const TableQuery = "select 1 from sqlite_master where type = 'table' and name = ?";
 
 export class DiskTokenLogs extends TokenLogs {
   constructor(
     private readonly wholeFileLimitBytes = WholeFileLimitBytes,
-    private readonly streamChunkBytes = StreamChunkBytes
+    private readonly streamChunkBytes = StreamChunkBytes,
+    private readonly longestTurnMs = LongestTurnMs
   ) {
     super();
   }
 
-  async files(folder: string, suffixes: string[]) {
+  async files(folder: string, suffixes: string[], isDeep = true) {
     const found: TokenLogFolder = { files: [] };
     const root = await realPathOf(folder);
     if (root === undefined) return found;
-    await this.walk({ path: folder, realPath: root }, suffixes, found, new Set());
+    await this.walk({ path: folder, realPath: root }, { suffixes, isDeep }, found, new Set());
     return { ...found, root, files: found.files.toSorted((left, right) => (left.path < right.path ? -1 : 1)) };
   }
 
@@ -51,12 +56,35 @@ export class DiskTokenLogs extends TokenLogs {
     }
   }
 
+  async rows(path: string, tables: TokenTable[], onRow: (row: unknown) => void) {
+    let database: Database | undefined;
+    try {
+      database = new Database(path, { readonly: true });
+      let turnStartedAt = performance.now();
+      for (const { name, query } of tables) {
+        if (!database.query(TableQuery).get(name)) continue;
+        for (const row of database.query(query).iterate()) {
+          onRow(row);
+          if (performance.now() - turnStartedAt < this.longestTurnMs) continue;
+          await Bun.sleep(0);
+          turnStartedAt = performance.now();
+        }
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new DomainError(DomainErrorCode.logUnreadable, `Could not read ${path}: ${reason}`);
+    } finally {
+      database?.close();
+    }
+  }
+
   private async walk(
     folder: { path: string; realPath: string },
-    suffixes: string[],
+    wanted: { suffixes: string[]; isDeep: boolean },
     found: TokenLogFolder,
     walked: Set<string>
   ) {
+    const { suffixes, isDeep } = wanted;
     if (walked.has(folder.realPath)) return;
     walked.add(folder.realPath);
     const entries = await readdir(folder.realPath, { withFileTypes: true }).catch(() => []);
@@ -66,16 +94,18 @@ export class DiskTokenLogs extends TokenLogs {
       const isLink = entry.isSymbolicLink();
       const isLog = suffixes.some((suffix) => entry.name.endsWith(suffix));
       if (!isLink && entry.isDirectory()) {
-        await this.walk({ path, realPath: direct }, suffixes, found, walked);
+        if (isDeep) await this.walk({ path, realPath: direct }, wanted, found, walked);
         continue;
       }
       if (!isLink && !isLog) continue;
       const realPath = isLink ? await realPathOf(direct) : direct;
       const info = realPath === undefined ? undefined : await stat(realPath).catch(() => undefined);
       if (realPath === undefined || info === undefined) continue;
-      if (info.isDirectory()) await this.walk({ path, realPath }, suffixes, found, walked);
-      else if (isLog)
-        found.files.push({ path, realPath, createdAt: info.birthtimeMs > 0 ? info.birthtimeMs : undefined });
+      if (info.isDirectory()) {
+        if (isDeep) await this.walk({ path, realPath }, wanted, found, walked);
+        continue;
+      }
+      if (isLog) found.files.push({ path, realPath, createdAt: info.birthtimeMs > 0 ? info.birthtimeMs : undefined });
     }
   }
 

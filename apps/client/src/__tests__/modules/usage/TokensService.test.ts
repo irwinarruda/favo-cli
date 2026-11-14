@@ -236,9 +236,9 @@ describe('what the page shows', () => {
   });
   test('names the providers favo does not count yet, unless they are filtered out', async () => {
     const app = await openTokens();
-    expect(app.state.uncountedProviders).toEqual(['Antigravity', 'OpenCode']);
-    app.state.toggleUsageFilter('providers', 'opencode');
     expect(app.state.uncountedProviders).toEqual(['Antigravity']);
+    app.state.toggleUsageFilter('providers', 'antigravity');
+    expect(app.state.uncountedProviders).toEqual([]);
   });
   test('adds up the records that could not be read, on the machines shown', async () => {
     const app = await openTokens(() => {
