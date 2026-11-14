@@ -189,6 +189,29 @@ describe('favo usage', () => {
     await child.exited;
     expect(Date.now() - started).toBeLessThan(5000);
   });
+  it.skipIf(isWindows)('prints a long answer whole to a reader that is slow to start', async () => {
+    const lines = Array.from({ length: 1000 }, (_, index) => ({
+      type: 'assistant',
+      timestamp: '2026-10-30T14:05:00.000Z',
+      requestId: `req_${index}`,
+      sessionId: 'session-a',
+      message: { id: `msg_${index}`, model: `claude-test-${index}`, usage: { input_tokens: 10, output_tokens: 40 } },
+    }));
+    const logs = `${home}/.claude/projects/-home-bee-hive`;
+    mkdirSync(logs, { recursive: true });
+    writeFileSync(`${logs}/one.jsonl`, lines.map((line) => JSON.stringify(line)).join('\n'));
+    const slowReader =
+      'bun "$0" usage --tokens --all --json | { while [ ! -f "$1" ]; do sleep 0.1; done; sleep 1; cat; }';
+    const child = Bun.spawn(['sh', '-c', slowReader, Main, `${home}/.favo/usage/tokens.json`], {
+      env: { PATH: `${fakeBin}${delimiter}${process.env.PATH}`, HOME: home, FAVO_PRICES_URL: NoPricesUrl },
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const answer = await new Response(child.stdout).text();
+    expect(answer.length).toBeGreaterThan(128 * 1024);
+    expect(JSON.parse(answer).days).toHaveLength(1000);
+  });
   it('gives machine readable output', async () => {
     const { stdout } = await favo(['usage', '--json']);
     const [{ machine, seats }] = JSON.parse(stdout);

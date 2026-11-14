@@ -9,6 +9,7 @@ import { CommandKind, parseCommand } from '@/parse-command';
 import { runCommand } from '@/run-command';
 import { HookCommand, runHook } from '@/run-hook';
 import { runTerminalPlan } from '@/run-terminal-plan';
+import { createStandardOutput } from '@/standard-output';
 
 async function main() {
   try {
@@ -33,10 +34,11 @@ async function main() {
     const client = createRpcClient(server.router);
     const { activeId, themes } = await client.call(listThemes, {});
     const colors = themes.find((theme) => theme.id === activeId)?.colors ?? BuiltInThemes[0]!.colors;
+    const output = createStandardOutput(process.stdout);
     const code = await runCommand(command, {
       client,
       paint: createPaint(process.stdout.isTTY === true && process.env.NO_COLOR === undefined, colors),
-      print: (line) => console.log(line),
+      print: output.print,
       runPlan: (plan) => runTerminalPlan(plan, process.env),
       ask: async (question) => process.stdin.isTTY === true && confirm(question),
       hold: async () => {
@@ -44,6 +46,7 @@ async function main() {
       },
     });
     server.close();
+    await output.flushed();
     return code;
   } catch (error) {
     if (!(error instanceof DomainError)) throw error;
