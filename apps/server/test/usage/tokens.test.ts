@@ -14,6 +14,8 @@ const WorkLogs = `${Home}/.favo/accounts/work/claude/projects/-home-bee-hive`;
 const CodexLogs = `${Home}/.codex/sessions/2026/10/30`;
 const WorkCodexLogs = `${Home}/.favo/accounts/work/codex/sessions/2026/10/30`;
 const Rollout = 'rollout-2026-10-30T16-00-00-c.jsonl';
+const OpencodeDatabase = `${Home}/.local/share/opencode/opencode.db`;
+const WorkOpencodeDatabase = `${Home}/.favo/accounts/work/opencode/opencode/opencode.db`;
 
 function claudeLine(id: string, output: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -46,6 +48,21 @@ function codexRollout(output: number) {
       payload: { type: 'token_count', info: { last_token_usage: usage, total_token_usage: usage } },
     },
   ];
+}
+
+function opencodeRow(id: string, output: number, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `msg_${id}`,
+    session: 'session-o',
+    at: Date.parse('2026-10-30T18:05:00.000Z'),
+    model: 'glm-test-1',
+    input: 10,
+    output,
+    reasoning: 5,
+    cacheRead: 1000,
+    cacheWrite: 0,
+    ...overrides,
+  };
 }
 
 function serverWithLogs() {
@@ -122,6 +139,56 @@ describe('reading tokens', () => {
     const usage = await client.call(readTokenUsage, { isFresh: true });
     expect(usage.skippedRecords).toBe(2);
     expect(usage.rows).toHaveLength(1);
+  });
+});
+
+describe('reading the tokens of OpenCode', () => {
+  it('counts its database, a message once whichever of its two tables holds it', async () => {
+    const { client, tokenLogs } = createTestServer();
+    tokenLogs.writeTable(OpencodeDatabase, 'message', [opencodeRow('one', 40), opencodeRow('two', 60)]);
+    tokenLogs.writeTable(OpencodeDatabase, 'session_message', [opencodeRow('two', 60), opencodeRow('three', 20)]);
+    const usage = await client.call(readTokenUsage, { isFresh: true });
+    expect(usage.skippedRecords).toBe(0);
+    expect(usage.rows).toEqual([
+      {
+        hour: '2026-10-30T18:00:00.000Z',
+        account: 'personal',
+        provider: 'opencode',
+        model: 'glm-test-1',
+        input: 30,
+        cacheRead: 3000,
+        cacheWrite: 0,
+        output: 135,
+        sessions: 1,
+      },
+    ]);
+  });
+  it('finds the database of a cell one folder down, and only there', async () => {
+    const { client, tokenLogs } = createTestServer();
+    await client.call(createAccount, { name: 'work' });
+    tokenLogs.writeTable(WorkOpencodeDatabase, 'message', [opencodeRow('one', 40)]);
+    tokenLogs.writeTable(`${Home}/.local/share/opencode/storage/backup/opencode.db`, 'message', [
+      opencodeRow('old', 9),
+    ]);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows).toMatchObject([{ account: 'work', provider: 'opencode', output: 45 }]);
+    expect(tokenLogs.reads).toEqual([WorkOpencodeDatabase]);
+  });
+  it('keeps what it counted when a session is deleted from the database', async () => {
+    const { client, tokenLogs } = createTestServer();
+    tokenLogs.writeTable(OpencodeDatabase, 'message', [opencodeRow('one', 40), opencodeRow('two', 60)]);
+    await client.call(readTokenUsage, { isFresh: true });
+    tokenLogs.writeTable(OpencodeDatabase, 'message', [opencodeRow('two', 60)]);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows).toMatchObject([{ output: 110 }]);
+  });
+  it('says so when the database could not be read, and keeps the other providers', async () => {
+    const { client, tokenLogs } = serverWithLogs();
+    tokenLogs.writeTable(OpencodeDatabase, 'message', [opencodeRow('one', 40)]);
+    tokenLogs.unreadable.push(OpencodeDatabase);
+    const usage = await client.call(readTokenUsage, { isFresh: true });
+    expect(usage.skippedRecords).toBe(1);
+    expect(usage.rows.map(({ provider }) => provider)).toEqual(['claude', 'codex']);
   });
 });
 

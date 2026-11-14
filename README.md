@@ -120,7 +120,7 @@ favo usage --tokens           # what every seat used
 favo usage --cost --days 7    # the same in dollars, for the last week
 ```
 
-favo counts from the session logs Claude Code and Codex already keep, reading only numbers, and keeps its own count, so a month Claude Code has deleted is still there.
+favo counts from the session logs Claude Code and Codex already keep and from OpenCode's database, reading only numbers, and keeps its own count, so a month Claude Code has deleted is still there.
 
 ### A TUI you will want to leave open
 
@@ -271,7 +271,7 @@ Providers are `claude`, `codex`, `agy` and `opencode`. Most commands take `--mac
 
 **Limits** asks Claude Code and Codex through their own commands, so no token is read and no thread starts. OpenCode and Antigravity show no limits for now, because neither has a source that works without a token. favo reads them once when the TUI opens, so the numbers are ready when you press `u`, and `favo usage` reads them when you run it. The bars show what is left: the thick part is yours now, the thinner part is what the next reset gives back, and the tall mark is how much of the window's time is left, so a bar that stops short of it is spending too fast.
 
-**Tokens** counts what each seat used, from the session logs Claude Code and Codex already keep on each machine. favo reads only numbers, times, model names and ids from them, never the text of a message. Claude Code deletes its logs after 30 days, so favo keeps its own count by hour in `~/.favo/usage` and only ever raises it. It counts once a day when the TUI opens, and again when you open the page or run the command. The same account on two machines is counted on both, because tokens are work done. OpenCode and Antigravity are not counted yet. `--days <n>` sets the period, 30 when left out, and `--all` is everything favo has kept. In the TUI, `1` to `5` or the arrows pick 24 hours, 7, 30 or 90 days, or all.
+**Tokens** counts what each seat used, from the session logs Claude Code and Codex already keep on each machine and from OpenCode's database, which favo opens read-only. favo reads only numbers, times, model names and ids from them, never the text of a message. OpenCode's reasoning tokens count as output. Claude Code deletes its logs after 30 days, so favo keeps its own count by hour in `~/.favo/usage` and only ever raises it. It counts once a day when the TUI opens, and again when you open the page or run the command. The same account on two machines is counted on both, because tokens are work done. Antigravity is not counted yet. `--days <n>` sets the period, 30 when left out, and `--all` is everything favo has kept. In the TUI, `1` to `5` or the arrows pick 24 hours, 7, 30 or 90 days, or all.
 
 **Cost** is the same count in dollars: what the API would charge for those tokens at list prices, not what your subscription bills you. The prices are LiteLLM's public table. Every model is priced at its base rate, with no long-context or fast-mode tiers. A model the table does not know is counted in tokens and left out of every dollar.
 

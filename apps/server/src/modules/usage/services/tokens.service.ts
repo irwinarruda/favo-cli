@@ -9,6 +9,12 @@ import {
   readCodexTokenLine,
 } from '@favo/domain/usage/codex-token-log';
 import {
+  OpencodeTokenFiles,
+  OpencodeTokenTables,
+  opencodeTokenFolderOf,
+  readOpencodeTokenRow,
+} from '@favo/domain/usage/opencode-token-log';
+import {
   hoursOfGoneLogs,
   type SeatTokenLog,
   type TokenLogIndex,
@@ -22,6 +28,7 @@ import {
   type TokenLedger,
   type TokenOwners,
   TokenProviders,
+  type TokenSeat,
   TokenUsageVersion,
   tokenRowsOf,
 } from '@favo/domain/usage/token-usage';
@@ -68,8 +75,7 @@ export class TokensService {
     );
     const listed = [];
     for (const { account, provider, path } of seats) {
-      const { folder, suffixes } = provider === ProviderId.claude ? ClaudeTokenFiles : CodexTokenFiles;
-      const { root, files } = await this.logs.files(`${path}/${folder}`, suffixes);
+      const { root, files } = await this.filesOf({ account, provider }, path);
       listed.push({ account, provider, root, files });
     }
     const { logs, repeatedSeats } = tokenLogsToRead(listed);
@@ -81,7 +87,8 @@ export class TokensService {
       const ledger = createTokenLedger('', stored?.owners[provider]);
       const ofProvider = logs.filter((log) => log.provider === provider);
       if (provider === ProviderId.claude) await this.readClaude(ofProvider, ledger);
-      else await this.readCodex(ofProvider, ledger);
+      else if (provider === ProviderId.codex) await this.readCodex(ofProvider, ledger);
+      else await this.readOpencode(ofProvider, ledger);
       fresh.push(...tokenRowsOf(ledger, provider));
       Object.assign(read, tokenLogIndexOf(ledger, provider));
       owners[provider] = Object.fromEntries(ledger.sharedOwners);
@@ -100,9 +107,19 @@ export class TokensService {
     return usage;
   }
 
+  private filesOf({ account, provider }: TokenSeat, path: string) {
+    if (provider === ProviderId.opencode) {
+      return this.logs.files(opencodeTokenFolderOf(account, path), OpencodeTokenFiles.suffixes, false);
+    }
+    const { folder, suffixes } = provider === ProviderId.claude ? ClaudeTokenFiles : CodexTokenFiles;
+    return this.logs.files(`${path}/${folder}`, suffixes);
+  }
+
   private async readClaude(logs: SeatTokenLog[], ledger: TokenLedger) {
     for (const log of logs) {
-      await this.readFile(log, ClaudeTokenMarkers, ledger, (line) => readClaudeTokenLine(ledger, line));
+      await this.readLog(log, ledger, () =>
+        this.logs.read(log.path, ClaudeTokenMarkers, (line) => readClaudeTokenLine(ledger, line))
+      );
     }
   }
 
@@ -112,14 +129,24 @@ export class TokensService {
     for (const [name, account] of sharedOwners) ledger.sharedOwners.set(name, account);
     for (const log of rollouts) {
       const rollout = createCodexRollout(log.session);
-      await this.readFile(log, CodexTokenMarkers, ledger, (line) => readCodexTokenLine(ledger, rollout, line));
+      await this.readLog(log, ledger, () =>
+        this.logs.read(log.path, CodexTokenMarkers, (line) => readCodexTokenLine(ledger, rollout, line))
+      );
     }
   }
 
-  private async readFile(log: SeatTokenLog, markers: string[], ledger: TokenLedger, onLine: (line: string) => void) {
+  private async readOpencode(logs: SeatTokenLog[], ledger: TokenLedger) {
+    for (const log of logs) {
+      await this.readLog(log, ledger, () =>
+        this.logs.rows(log.path, OpencodeTokenTables, (row) => readOpencodeTokenRow(ledger, row))
+      );
+    }
+  }
+
+  private async readLog(log: SeatTokenLog, ledger: TokenLedger, read: () => Promise<void>) {
     try {
       ledger.source = { account: log.account, createdAt: log.createdAt, log: log.realPath };
-      await this.logs.read(log.path, markers, onLine);
+      await read();
     } catch (error) {
       if (!(error instanceof DomainError)) throw error;
       ledger.skipped += 1;
