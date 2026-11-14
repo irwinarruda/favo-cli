@@ -222,29 +222,45 @@ describe('token logs on disk', () => {
     mkdirSync(dirname(path), { recursive: true });
     const database = new Database(path);
     database.run('pragma journal_mode = wal');
+    database.run('create table session (id text primary key, time_created integer not null)');
+    database.run('create table session_v2 (id text primary key, time_created integer not null)');
     database.run(
       'create table message (id text primary key, session_id text not null, time_created integer not null, time_updated integer not null, data text not null)'
     );
     database.run(
       'create table session_message (id text primary key, session_id text not null, type text not null, seq integer not null, time_created integer not null, time_updated integer not null, data text not null)'
     );
+    for (const table of ['session', 'session_v2']) {
+      database.run(`insert into ${table} values (?, ?), (?, ?)`, ['ses_a', 1000, 'ses_fork', 9000]);
+    }
     const tokens = { input: 10, output: 40, reasoning: 5, cache: { read: 2000, write: 300 } };
     const old = { role: 'assistant', modelID: 'glm-test-1', providerID: 'zai', path: { cwd: '/secret' }, tokens };
-    const fresh = { model: { id: 'glm-test-2', providerID: 'zai' }, content: [{ type: 'text', text: 'a secret' }] };
+    const model = { id: 'glm-test-2', providerID: 'zai' };
+    const fresh = { model, content: [{ type: 'text', text: 'a secret' }], tokens };
+    const compaction = { status: 'completed', summary: 'a secret', model, tokens };
     const insertOld = 'insert into message values (?, ?, ?, ?, ?)';
     database.run(insertOld, ['msg_1', 'ses_a', 1000, 1000, JSON.stringify(old)]);
     database.run(insertOld, ['msg_2', 'ses_a', 2000, 2000, JSON.stringify({ role: 'user', text: 'a secret' })]);
     database.run(insertOld, ['msg_3', 'ses_a', 3000, 3000, '{"role":"assistant","tokens":']);
+    database.run(insertOld, ['msg_1_copy', 'ses_fork', 1000, 1000, JSON.stringify(old)]);
+    database.run(insertOld, ['msg_orphan', 'ses_gone', 3500, 3500, JSON.stringify(old)]);
     const insertNew = 'insert into session_message values (?, ?, ?, ?, ?, ?, ?)';
-    database.run(insertNew, ['msg_4', 'ses_b', 'assistant', 1, 4000, 4000, JSON.stringify({ ...fresh, tokens })]);
-    database.run(insertNew, ['msg_5', 'ses_b', 'user', 2, 5000, 5000, JSON.stringify({ text: 'a secret' })]);
-    database.run(insertNew, ['msg_6', 'ses_b', 'assistant', 3, 6000, 6000, 'not json']);
+    database.run(insertNew, ['msg_4', 'ses_a', 'assistant', 1, 4000, 4000, JSON.stringify(fresh)]);
+    database.run(insertNew, ['msg_5', 'ses_a', 'user', 2, 5000, 5000, JSON.stringify({ text: 'a secret' })]);
+    database.run(insertNew, ['msg_6', 'ses_a', 'assistant', 3, 6000, 6000, 'not json']);
+    database.run(insertNew, ['msg_7', 'ses_a', 'compaction', 4, 7000, 7000, JSON.stringify(compaction)]);
+    database.run(insertNew, ['msg_4_copy', 'ses_fork', 'assistant', 1, 4000, 4000, JSON.stringify(fresh)]);
+    database.run(insertNew, ['msg_7_copy', 'ses_fork', 'compaction', 4, 7000, 7000, JSON.stringify(compaction)]);
+    database.run(insertNew, ['msg_8', 'ses_fork', 'assistant', 5, 9500, 9500, JSON.stringify(fresh)]);
     database.close();
     const numbers = { input: 10, output: 40, reasoning: 5, cacheRead: 2000, cacheWrite: 300 };
     const rows = await rowsOf(new DiskTokenLogs(), path, OpencodeTokenTables);
     expect(rows).toEqual([
       { id: 'msg_1', session: 'ses_a', at: 1000, model: 'glm-test-1', ...numbers },
-      { id: 'msg_4', session: 'ses_b', at: 4000, model: 'glm-test-2', ...numbers },
+      { id: 'msg_orphan', session: 'ses_gone', at: 3500, model: 'glm-test-1', ...numbers },
+      { id: 'msg_4', session: 'ses_a', at: 4000, model: 'glm-test-2', ...numbers },
+      { id: 'msg_7', session: 'ses_a', at: 7000, model: 'glm-test-2', ...numbers },
+      { id: 'msg_8', session: 'ses_fork', at: 9500, model: 'glm-test-2', ...numbers },
     ]);
   });
   it.each([undefined, 64])('reads a rollout Codex compressed with zstd (whole file limit %p)', async (limit) => {

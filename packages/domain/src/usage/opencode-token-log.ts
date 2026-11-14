@@ -20,11 +20,11 @@ export const OpencodeTokenFiles = { suffixes: ['opencode.db'] };
 export const OpencodeTokenTables: TokenTable[] = [
   {
     name: 'message',
-    query: `select id, session_id as session, time_created as at, json_extract(data, '$.modelID') as model, ${Numbers} from message where json_valid(data) and json_extract(data, '$.role') = 'assistant'`,
+    query: `select id, session_id as session, time_created as at, json_extract(data, '$.modelID') as model, ${Numbers} from message where json_valid(data) and json_extract(data, '$.role') = 'assistant' and ${notCopiedFrom('session', 'message')}`,
   },
   {
     name: 'session_message',
-    query: `select id, session_id as session, time_created as at, json_extract(data, '$.model.id') as model, ${Numbers} from session_message where type = 'assistant' and json_valid(data)`,
+    query: `select id, session_id as session, time_created as at, json_extract(data, '$.model.id') as model, ${Numbers} from session_message where type in ('assistant', 'compaction') and json_valid(data) and ${notCopiedFrom('session_v2', 'session_message')}`,
   },
 ];
 
@@ -39,6 +39,10 @@ type OpencodeRow = {
   cacheRead?: unknown;
   cacheWrite?: unknown;
 };
+
+function notCopiedFrom(sessions: string, messages: string) {
+  return `time_created >= coalesce((select time_created from ${sessions} where ${sessions}.id = ${messages}.session_id), 0)`;
+}
 
 export function opencodeTokenFolderOf(account: string, seatPath: string) {
   return isPersonalAccount(account) ? seatPath : `${seatPath}/${DataFolder}`;

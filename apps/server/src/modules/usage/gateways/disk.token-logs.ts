@@ -57,9 +57,8 @@ export class DiskTokenLogs extends TokenLogs {
   }
 
   async rows(path: string, tables: TokenTable[], onRow: (row: unknown) => void) {
-    let database: Database | undefined;
     try {
-      database = new Database(path, { readonly: true });
+      using database = new Database(path, { readonly: true });
       let turnStartedAt = performance.now();
       for (const { name, query } of tables) {
         if (!database.query(TableQuery).get(name)) continue;
@@ -73,8 +72,6 @@ export class DiskTokenLogs extends TokenLogs {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new DomainError(DomainErrorCode.logUnreadable, `Could not read ${path}: ${reason}`);
-    } finally {
-      database?.close();
     }
   }
 
