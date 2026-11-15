@@ -25,7 +25,7 @@
     "screenshots": "bun scripts/screenshots.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.0",
+    "@biomejs/biome": "^2.6.6",
     "@favo/client": "workspace:*",
     "@favo/contracts": "workspace:*",
     "@types/bun": "latest",
