@@ -10,6 +10,22 @@ describe('SessionService', () => {
     await app.state.openSelectedSeat();
     expect(mockDb.terminalRuns).toEqual([{ command: 'claude', args: ['launch', 'personal'], env: {}, unsetEnv: [] }]);
   });
+  test('offers a same-account provider after a limit and carries the transcript into its prompt', async () => {
+    const app = await getApp();
+    mockDb.terminalRateLimitDetected = true;
+    mockDb.threads['seat:local/personal/claude']![0]!.transcript = '/local/claude/session.jsonl';
+
+    await app.state.launchSelectedSeat();
+
+    expect(app.state.pendingHandoff?.source.provider).toBe('claude');
+    expect(app.state.pendingHandoff?.transcript).toBe('/local/claude/session.jsonl');
+    const codex = app.state.selectedAccount?.visibleSeats.find((seat) => seat.provider === 'codex');
+    expect(codex?.isSignedIn).toBe(true);
+    await app.state.continueHandoff(codex!);
+
+    expect(mockDb.terminalRuns[1]?.args.at(-1)).toContain('/local/claude/session.jsonl');
+    expect(app.state.pendingHandoff?.source.provider).toBe('codex');
+  });
   test('launches with no folder on a machine named like an inherited property', async () => {
     const id: string = 'constructor';
     const app = await getApp();

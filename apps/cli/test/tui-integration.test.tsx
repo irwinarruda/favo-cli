@@ -42,7 +42,7 @@ async function openFleet(callerEnv?: Record<string, string>) {
     terminalGateway: {
       async run(plan) {
         plans.push(plan);
-        return 0;
+        return { exitCode: 0, rateLimitDetected: false };
       },
     },
   });

@@ -1,5 +1,5 @@
 import type { RpcTransport } from '@favo/contracts/rpc/envelope';
-import type { TerminalPlan } from '@favo/domain/terminal/terminal-plan';
+import type { TerminalPlan, TerminalRunOptions, TerminalRunResult } from '@favo/domain/terminal/terminal-plan';
 import { createCliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
 import { App } from '@/App';
@@ -10,7 +10,7 @@ import { useApp } from '@/shared/stores/app';
 
 export type TuiOptions = {
   transport: RpcTransport;
-  runPlan(plan: TerminalPlan): Promise<number>;
+  runPlan(plan: TerminalPlan, options?: TerminalRunOptions): Promise<TerminalRunResult>;
   env: Record<string, string | undefined>;
 };
 

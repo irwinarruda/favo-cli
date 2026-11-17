@@ -13,6 +13,7 @@ export type FleetService = {
   machines: Machine[];
   accounts: Account[];
   isFleetLoading: boolean;
+  hasLoadedFleet: boolean;
   combRows: CombRow[];
   fleetSummary: FleetSummary;
   hasMachinesBehind: boolean;
@@ -37,6 +38,7 @@ export const createFleetService: ServiceCreator<FleetService> = (set, get) => ({
   machines: [],
   accounts: [],
   isFleetLoading: false,
+  hasLoadedFleet: false,
   async loadFleet() {
     try {
       set({ isFleetLoading: true });
@@ -57,7 +59,7 @@ export const createFleetService: ServiceCreator<FleetService> = (set, get) => ({
         })
       );
     } finally {
-      set({ isFleetLoading: false });
+      set({ isFleetLoading: false, hasLoadedFleet: true });
     }
   },
   async refreshMachine(machineId) {

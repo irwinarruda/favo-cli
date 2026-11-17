@@ -405,6 +405,7 @@ export const mockDb = {
   clipboard: [] as string[],
   terminalRuns: [] as TerminalPlan[],
   terminalExitCode: 0,
+  terminalRateLimitDetected: false,
   provisioned: [] as string[],
   repaired: [] as string[],
   repairedLinks: 0,
@@ -454,6 +455,7 @@ export const mockDb = {
     this.clipboard = [];
     this.terminalRuns = [];
     this.terminalExitCode = 0;
+    this.terminalRateLimitDetected = false;
     this.provisioned = [];
     this.repaired = [];
     this.repairedLinks = 0;

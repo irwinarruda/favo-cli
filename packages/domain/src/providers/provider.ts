@@ -62,6 +62,7 @@ export type ProviderSpec = {
   loginScope: LoginScope;
   pathHint: string;
   resumeArguments: string[];
+  initialPromptArguments: string[];
   hook: ProviderHook;
   update: ProviderUpdateSpec;
   herdrAgent?: string;
@@ -94,6 +95,7 @@ export const Providers: Record<ProviderId, ProviderSpec> = {
     loginScope: LoginScope.perAccount,
     pathHint: 'CLAUDE_CONFIG_DIR path',
     resumeArguments: ['--resume'],
+    initialPromptArguments: [],
     hook: {
       kind: HookKind.eventGroups,
       file: '.claude/settings.json',
@@ -123,6 +125,7 @@ export const Providers: Record<ProviderId, ProviderSpec> = {
     loginScope: LoginScope.perAccount,
     pathHint: 'CODEX_HOME path',
     resumeArguments: ['resume'],
+    initialPromptArguments: [],
     hook: {
       kind: HookKind.eventGroups,
       file: '.codex/hooks.json',
@@ -157,6 +160,7 @@ export const Providers: Record<ProviderId, ProviderSpec> = {
     loginScope: LoginScope.perAccount,
     pathHint: 'HOME for agy',
     resumeArguments: ['--conversation'],
+    initialPromptArguments: ['--prompt-interactive'],
     hook: {
       kind: HookKind.namedBlock,
       file: '.gemini/config/hooks.json',
@@ -178,6 +182,7 @@ export const Providers: Record<ProviderId, ProviderSpec> = {
     loginScope: LoginScope.perAccount,
     pathHint: 'XDG_DATA_HOME for opencode',
     resumeArguments: ['--session'],
+    initialPromptArguments: ['--prompt'],
     hook: { kind: HookKind.plugin, file: 'opencode/plugins/favo-threads.js' },
     update: {
       packages: [

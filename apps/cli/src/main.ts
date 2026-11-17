@@ -25,7 +25,7 @@ async function main() {
       const { startTui } = await import('@favo/client/main');
       await startTui({
         transport: server.router,
-        runPlan: (plan) => runTerminalPlan(plan, process.env),
+        runPlan: (plan, options) => runTerminalPlan(plan, process.env, options),
         env: process.env,
       });
       server.close();
@@ -39,7 +39,7 @@ async function main() {
       client,
       paint: createPaint(process.stdout.isTTY === true && process.env.NO_COLOR === undefined, colors),
       print: output.print,
-      runPlan: (plan) => runTerminalPlan(plan, process.env),
+      runPlan: async (plan) => (await runTerminalPlan(plan, process.env)).exitCode,
       ask: async (question) => process.stdin.isTTY === true && confirm(question),
       hold: async () => {
         if (process.stdin.isTTY === true) prompt('Press enter to go back.');

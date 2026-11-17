@@ -1,8 +1,10 @@
 import type { DesktopAppView, ThreadView } from '@favo/contracts/rpc/views';
 import { DesktopLogin, DesktopOpening } from '@favo/domain/desktop/desktop-app';
 import { isOlderFavoError } from '@favo/domain/machines/machine';
+import { Providers } from '@favo/domain/providers/provider';
 import { ownValue } from '@favo/domain/shared/own-value';
 import { TerminalAction } from '@favo/domain/terminal/terminal-plan';
+import { handoffPromptOf } from '@favo/domain/threads/handoff-prompt';
 import { compute } from '@/libs/zustand';
 import type { Seat } from '@/modules/comb/app/entities/Seat';
 import { ToastKind } from '@/shared/app/services/ToastService';
@@ -15,6 +17,7 @@ const AppLoginPolls = 60;
 export type AppLoginWatch = { seatKey: string };
 
 export type SessionService = {
+  pendingHandoff?: { source: Seat; directory: string; transcript?: string };
   desktopApps: Record<string, DesktopAppView[]>;
   selectedDesktopApp?: DesktopAppView;
   canOpenDesktopApp: boolean;
@@ -31,6 +34,8 @@ export type SessionService = {
   signOutSelectedSeat(): Promise<void>;
   copySelectedPath(): Promise<void>;
   repairSelectedMachine(): Promise<void>;
+  closeHandoff(): void;
+  continueHandoff(seat: Seat): Promise<void>;
 };
 
 export const createSessionService: ServiceCreator<SessionService> = (set, get) => ({
@@ -41,6 +46,7 @@ export const createSessionService: ServiceCreator<SessionService> = (set, get) =
   desktopApps: {},
   isDesktopAppBusy: false,
   appLoginWatch: undefined,
+  pendingHandoff: undefined,
   async loadDesktopApps(machineId) {
     const previousApps = ownValue(get().desktopApps, machineId) ?? [];
     const desktopApps = await _appsOn(machineId);
@@ -99,13 +105,66 @@ export const createSessionService: ServiceCreator<SessionService> = (set, get) =
     const { selectedSeat, launchDirectories, refreshSeat, loadSelectedThreads } = get();
     if (!selectedSeat) return;
     const directory = ownValue(launchDirectories, selectedSeat.machineId);
-    await _runInTerminal(selectedSeat, TerminalAction.launch, refreshSeat, directory);
+    const result = await _runInTerminal(
+      selectedSeat,
+      TerminalAction.launch,
+      refreshSeat,
+      directory,
+      undefined,
+      [],
+      true
+    );
     await loadSelectedThreads();
+    if (result.rateLimitDetected)
+      set({ pendingHandoff: _handoffOf(selectedSeat, directory, get().selectedThreads[0]) });
   },
   async resumeSeatThread(seat, thread) {
     const { refreshSeat, loadSelectedThreads } = get();
-    await _runInTerminal(seat, TerminalAction.resume, refreshSeat, thread.directory, thread.id);
+    const result = await _runInTerminal(
+      seat,
+      TerminalAction.resume,
+      refreshSeat,
+      thread.directory,
+      thread.id,
+      [],
+      true
+    );
     await loadSelectedThreads();
+    if (result.rateLimitDetected)
+      set({ pendingHandoff: _handoffOf(seat, thread.directory, get().selectedThreads[0] ?? thread) });
+  },
+  closeHandoff() {
+    set({ pendingHandoff: undefined });
+  },
+  async continueHandoff(seat) {
+    const pendingHandoff = get().pendingHandoff;
+    if (!pendingHandoff) return;
+    const prompt = handoffPromptOf({
+      sourceProvider: pendingHandoff.source.provider,
+      transcript: pendingHandoff.transcript,
+      directory: pendingHandoff.directory,
+    });
+    const args = [...Providers[seat.provider].initialPromptArguments, prompt];
+    set({ pendingHandoff: undefined });
+    let result: Awaited<ReturnType<typeof _runInTerminal>>;
+    try {
+      result = await _runInTerminal(
+        seat,
+        TerminalAction.launch,
+        get().refreshSeat,
+        pendingHandoff.directory,
+        undefined,
+        args,
+        true
+      );
+    } catch (error) {
+      set({ pendingHandoff });
+      throw error;
+    }
+    if (result.rateLimitDetected) {
+      const thread = await _latestThreadOf(seat, pendingHandoff.directory);
+      set({ pendingHandoff: _handoffOf(seat, pendingHandoff.directory, thread) });
+    }
   },
   async signInSelectedSeat() {
     const { selectedSeat } = get();
@@ -181,11 +240,27 @@ async function _runInTerminal(
   action: TerminalAction,
   refreshSeat: (seat: Seat) => Promise<void>,
   directory?: string,
-  thread?: string
+  thread?: string,
+  args: string[] = [],
+  monitorLimits = false
 ) {
   const terminalRepository = container.get('ITerminalRepository');
   const terminalGateway = container.get('ITerminalGateway');
-  const plan = await terminalRepository.plan(seat, action, directory, thread);
-  await terminalGateway.run(plan);
+  const plan = await terminalRepository.plan(seat, action, directory, thread, args);
+  const result = await terminalGateway.run(plan, monitorLimits ? { monitorLimits: seat.provider } : undefined);
   await refreshSeat(seat);
+  return result;
+}
+
+function _handoffOf(source: Seat, directory: string | undefined, thread: ThreadView | undefined) {
+  return { source, directory: thread?.directory ?? directory ?? process.cwd(), transcript: thread?.transcript };
+}
+
+async function _latestThreadOf(seat: Seat, directory: string) {
+  const threadRepository = container.get('IThreadRepository');
+  try {
+    return (await threadRepository.getThreads(seat, directory))[0];
+  } catch {
+    return undefined;
+  }
 }

@@ -94,6 +94,7 @@ export type SeatRepair = z.infer<typeof SeatRepair>;
 export const ThreadView = z.strictObject({
   id: z.string(),
   directory: z.string(),
+  transcript: z.string().optional(),
   updatedAt: z.string(),
   isGuess: z.boolean(),
   isDirectoryGone: z.boolean(),

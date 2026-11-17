@@ -176,12 +176,13 @@ export class ThreadsService {
   }
 
   private async viewOf(thread: Omit<ThreadView, 'isGuess' | 'isDirectoryGone'>, isGuess: boolean) {
-    const { id, directory, updatedAt } = thread;
+    const { id, directory, transcript, updatedAt } = thread;
     const isDirectoryGone = !(await this.fileSystem.isDirectory(directory));
     return {
       id,
       updatedAt,
       directory: nativePath(directory, this.paths.isWindows),
+      transcript,
       isGuess,
       isDirectoryGone,
     };

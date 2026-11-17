@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- When a provider session reports a usage limit, favo offers signed-in providers in the same account and shows their known remaining limit. Choosing one starts it in the same workspace with a prompt to read the previous local transcript when available.
+- favo shows its loading mark while it checks the providers signed in on each machine.
+
 ## [0.16.0] - 2026-11-14
 
 ### Added

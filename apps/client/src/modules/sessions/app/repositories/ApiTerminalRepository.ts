@@ -7,13 +7,13 @@ import type { ITerminalRepository } from '@/modules/sessions/app/repositories/IT
 export class ApiTerminalRepository implements ITerminalRepository {
   constructor(private readonly client: RpcClient) {}
 
-  plan(seat: Seat, action: TerminalAction, directory?: string, thread?: string) {
+  plan(seat: Seat, action: TerminalAction, directory?: string, thread?: string, args: string[] = []) {
     return this.client.call(planTerminal, {
       machineId: seat.machineId,
       action,
       account: seat.account,
       provider: seat.provider,
-      args: [],
+      args,
       directory,
       thread,
     });

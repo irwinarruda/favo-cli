@@ -5,6 +5,6 @@ import type { ITerminalGateway } from '@/shared/app/gateways/ITerminalGateway';
 export class TestTerminalGateway implements ITerminalGateway {
   async run(plan: TerminalPlan) {
     mockDb.terminalRuns.push(plan);
-    return mockDb.terminalExitCode;
+    return { exitCode: mockDb.terminalExitCode, rateLimitDetected: mockDb.terminalRateLimitDetected };
   }
 }

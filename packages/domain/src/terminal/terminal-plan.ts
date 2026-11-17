@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { LocalMachineId, type RemoteSystem, remoteBinaryOf } from '#domain/machines/machine';
 import type { ProviderId } from '#domain/providers/provider';
+
+export type TerminalRunOptions = { monitorLimits?: ProviderId };
+export type TerminalRunResult = { exitCode: number; rateLimitDetected: boolean };
+
 import { assertDomain, DomainError, DomainErrorCode } from '#domain/shared/domain-error';
 import type { ValueOf } from '#domain/shared/value-of';
 

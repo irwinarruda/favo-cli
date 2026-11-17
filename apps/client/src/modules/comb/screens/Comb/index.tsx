@@ -7,11 +7,13 @@ import { RenameAccount } from '@/modules/accounts/screens/RenameAccount';
 import { Header } from '@/modules/comb/screens/Comb/Header';
 import { HelpDialog } from '@/modules/comb/screens/Comb/HelpDialog';
 import { KeyBar } from '@/modules/comb/screens/Comb/KeyBar';
+import { Loading } from '@/modules/comb/screens/Comb/Loading';
 import { MachineCard } from '@/modules/comb/screens/Comb/MachineCard';
 import { SeatDetail } from '@/modules/comb/screens/Comb/SeatDetail';
 import { useCombKeys } from '@/modules/comb/screens/Comb/useCombKeys';
 import { DirectoryPicker } from '@/modules/directories/screens/DirectoryPicker';
 import { AddMachine } from '@/modules/machines/screens/AddMachine';
+import { HandoffDialog } from '@/modules/sessions/screens/HandoffDialog';
 import { ThemePicker } from '@/modules/themes/screens/ThemePicker';
 import { ThreadPicker } from '@/modules/threads/screens/ThreadPicker';
 import type { ProviderCliTarget } from '@/modules/updates/app/services/ProviderCliService';
@@ -32,6 +34,8 @@ export function Comb({ onQuit }: { onQuit(): void }) {
   const colors = useApp((state) => state.colors);
   const { width, height } = useTerminalDimensions();
   const machines = useApp((state) => state.machines);
+  const isFleetLoading = useApp((state) => state.isFleetLoading);
+  const hasLoadedFleet = useApp((state) => state.hasLoadedFleet);
   const loadFleet = useApp((state) => state.loadFleet);
   const selectedRow = useApp((state) => state.selectedRow);
   const selectedAccount = useApp((state) => state.selectedAccount);
@@ -40,6 +44,7 @@ export function Comb({ onQuit }: { onQuit(): void }) {
   const forgetSelectedMachine = useApp((state) => state.forgetSelectedMachine);
   const updateProviderClis = useApp((state) => state.updateProviderClis);
   const isUpdatingProviderClis = useApp((state) => state.isUpdatingProviderClis);
+  const pendingHandoff = useApp((state) => state.pendingHandoff);
   const openProviderClis = useApp((state) => state.openProviderClis);
   const selectedSeat = useApp((state) => state.selectedSeat);
   const selectedDesktopApp = useApp((state) => state.selectedDesktopApp);
@@ -74,7 +79,7 @@ export function Comb({ onQuit }: { onQuit(): void }) {
     isDirectoryPickerOpen ||
     isThreadPickerOpen ||
     isUsageOpen;
-  const isDialogOpen = isScreenOpen || isProviderClisOpen || confirmation !== undefined;
+  const isDialogOpen = isScreenOpen || isProviderClisOpen || confirmation !== undefined || pendingHandoff !== undefined;
   const canAskAboutRunning = runningClis.length > 0 && !isScreenOpen && confirmation === undefined;
 
   function onRemoveAccount() {
@@ -186,6 +191,8 @@ export function Comb({ onQuit }: { onQuit(): void }) {
     if (canAskAboutRunning) askAboutRunning();
   }, [canAskAboutRunning]);
 
+  if (isFleetLoading || !hasLoadedFleet) return <Loading />;
+
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor={colors.background}>
       <Header />
@@ -233,6 +240,7 @@ export function Comb({ onQuit }: { onQuit(): void }) {
       {isDirectoryPickerOpen && <DirectoryPicker />}
       {isThreadPickerOpen && <ThreadPicker />}
       {!!confirmation && <ConfirmDialog confirmation={confirmation} onClose={() => setConfirmation(undefined)} />}
+      {!!pendingHandoff && <HandoffDialog />}
     </box>
   );
 }
