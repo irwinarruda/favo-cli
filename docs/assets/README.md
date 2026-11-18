@@ -11,6 +11,8 @@ Two shapes, each in three colorways. The **logo** is the prompt chevron, the wor
 | [`mark-dark.svg`](mark-dark.svg)   | mark  | dark backgrounds                           | `#F3E7CF` | `#F5A623` |
 | [`mark-light.svg`](mark-light.svg) | mark  | light backgrounds                          | `#33291A` | `#B8720A` |
 
+[`icon.svg`](icon.svg) is the mark on a rounded slate tile, `#111418` with a white chevron and the `#F5A623` cell, like the icons of Irwin's other apps. It is a copy of irwin-ui's `brand/favo/icon.svg`, and `t3.json` makes it the project icon in T3 Code.
+
 The colors come from favo's two default themes. The dark variants use Honey's text and accent, the light variants use Wax's, and the any-background variants pair Wax's amber ink with Honey's amber cell, which stays readable on both but with less contrast than a themed pair.
 
 ## Previews
