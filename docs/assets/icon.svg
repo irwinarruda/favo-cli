@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="favo">
+<title>favo</title>
+<rect width="512" height="512" rx="112" fill="#111418"/>
+<g transform="translate(256 256) scale(1.8) translate(-115.78 50)"><path d="M13 -104L44.18 -50L13 4" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/><path transform="translate(93 0)" d="M135.56 -55.2Q138.56 -50 135.56 -44.8L106.92 4.8Q103.92 10 97.92 10L40.64 10Q34.64 10 31.64 4.8L3 -44.8Q0 -50 3 -55.2L31.64 -104.8Q34.64 -110 40.64 -110L97.92 -110Q103.92 -110 106.92 -104.8Z" fill="#F5A623"/></g>
+</svg>
