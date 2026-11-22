@@ -8,6 +8,7 @@ import {
   Providers,
 } from '@favo/domain/providers/provider';
 import { ownValue } from '@favo/domain/shared/own-value';
+import { EntryKind } from '@favo/domain/sharing/shared-item';
 import type { TerminalPlan } from '@favo/domain/terminal/terminal-plan';
 import {
   InstallMethod,
@@ -19,6 +20,18 @@ import {
   upgradeArgumentsOf,
   upgradeEnvironmentOf,
 } from '@favo/domain/updates/install-source';
+import {
+  CodesignCommand,
+  caskFolderOf,
+  inheritedFilesOf,
+  quarantineArguments,
+  releaseArguments,
+  type SignedInstall,
+  signedByArguments,
+  signerArguments,
+  signerFrom,
+  XattrCommand,
+} from '@favo/domain/updates/signed-install';
 import { settledRecordOf, type UpdateOutcome, UpdateState } from '@favo/domain/updates/update-outcome';
 import type { ProviderRunRepository } from '@/modules/providers/repositories/provider-run.repository';
 import type { ProviderUpdateRepository } from '@/modules/providers/repositories/provider-update.repository';
@@ -62,8 +75,11 @@ export class ProviderUpdatesService {
   async record(provider: ProviderId, outcome?: UpdateOutcome, updaterPid = this.pid) {
     if (!outcome) await this.updates.clear(provider);
     else {
-      const pid = outcome.state === UpdateState.updating ? updaterPid : undefined;
-      await this.updates.save(provider, { ...outcome, at: this.clock.now().toISOString(), pid });
+      const isUpdating = outcome.state === UpdateState.updating;
+      const pid = isUpdating ? updaterPid : undefined;
+      const isOwnUpdate = isUpdating && updaterPid === this.pid;
+      const signedInstall = isOwnUpdate ? await this.signedInstallOf(provider) : undefined;
+      await this.updates.save(provider, { ...outcome, at: this.clock.now().toISOString(), pid, signedInstall });
     }
     return {};
   }
@@ -111,9 +127,11 @@ export class ProviderUpdatesService {
   }
 
   private async versionOf(provider: ProviderId): Promise<ProviderVersionView | undefined> {
-    const [install, saved] = await Promise.all([this.installOf(provider), this.updates.last(provider)]);
-    const { label } = Providers[provider];
+    const saved = await this.updates.last(provider);
     const isUpdaterAlive = saved?.pid !== undefined && this.processes.isAlive(saved.pid);
+    if (saved?.signedInstall && isUpdaterAlive) await this.carryApproval(provider, saved.signedInstall);
+    const install = await this.installOf(provider);
+    const { label } = Providers[provider];
     const lastUpdate = saved && settledRecordOf(saved, isUpdaterAlive);
     if (!install) {
       return lastUpdate?.state === UpdateState.updating
@@ -133,6 +151,59 @@ export class ProviderUpdatesService {
     const check = await this.processes.run({ command: binary, args: ['--version'], env, timeoutMs: CheckTimeoutMs });
     const installedWith = source ? installLabelOf(source) : `own install at ${realPath}`;
     return { spec, binary, realPath, source, version: versionFrom(check.stdout), installedWith };
+  }
+
+  private async caskFolder(provider: ProviderId) {
+    const binary = await this.providers.binaryOf(provider);
+    if (!binary) return undefined;
+    const realPath = await this.fileSystem.realPath(binary);
+    const source = await this.sourceFor(Providers[provider], realPath);
+    return source?.isCask ? caskFolderOf(realPath) : undefined;
+  }
+
+  private async signedInstallOf(provider: ProviderId): Promise<SignedInstall | undefined> {
+    const folder = await this.caskFolder(provider);
+    if (!folder) return undefined;
+    const signers: Record<string, string> = {};
+    for (const path of await this.filesIn(folder)) {
+      const shown = await this.processes.run({
+        command: CodesignCommand,
+        args: signerArguments(path),
+        timeoutMs: CheckTimeoutMs,
+      });
+      const signer = signerFrom(shown.stdout);
+      if (signer) signers[path.slice(folder.length + 1)] = signer;
+    }
+    return Object.keys(signers).length > 0 ? { folder, signers } : undefined;
+  }
+
+  private async carryApproval(provider: ProviderId, before: SignedInstall) {
+    for (const { path, signer } of inheritedFilesOf(before, await this.caskFolder(provider))) {
+      const held = await this.processes.run({
+        command: XattrCommand,
+        args: quarantineArguments(path),
+        timeoutMs: CheckTimeoutMs,
+      });
+      if (held.code !== 0) continue;
+      const check = await this.processes.run({
+        command: CodesignCommand,
+        args: signedByArguments(path, signer),
+        timeoutMs: CheckTimeoutMs,
+      });
+      if (check.code !== 0) continue;
+      await this.processes.run({ command: XattrCommand, args: releaseArguments(path), timeoutMs: CheckTimeoutMs });
+    }
+  }
+
+  private async filesIn(folder: string) {
+    const found: string[] = [];
+    for (const name of await this.fileSystem.list(folder)) {
+      const path = `${folder}/${name}`;
+      const { kind } = await this.fileSystem.entry(path);
+      if (kind === EntryKind.directory) found.push(...(await this.filesIn(path)));
+      if (kind === EntryKind.file) found.push(path);
+    }
+    return found;
   }
 
   private async sourceFor(spec: ProviderSpec, realPath: string) {

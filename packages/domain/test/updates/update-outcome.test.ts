@@ -12,6 +12,14 @@ describe('what the last update of a provider says', () => {
     const record = { state: UpdateState.updating, from: '2.1.300', at: At };
     expect(settledRecordOf({ ...record, pid: 4242 }, false)).toEqual({ ...record, state: UpdateState.stopped });
   });
+  it('keeps the signers it remembered to itself', () => {
+    const record = { state: UpdateState.updating, at: At };
+    const signedInstall = {
+      folder: '/opt/homebrew/Caskroom/codex/0.171.0',
+      signers: { 'bin/codex': 'identifier codex' },
+    };
+    expect(settledRecordOf({ ...record, signedInstall }, true)).toEqual(record);
+  });
   it('leaves a finished update as it is', () => {
     const record = { state: UpdateState.failed, from: '2.1.300', reason: 'exit 1', at: At };
     expect(settledRecordOf(record, false)).toEqual(record);
