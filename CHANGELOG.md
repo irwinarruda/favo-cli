@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-21
+
 ### Added
 
 - Antigravity CLI (`agy`) now shows your signed-in Google email and, for consumer Google sign-ins, your plan tier (such as `Google AI Pro`) in the comb and `favo list`, matching Claude Code and Codex.
@@ -215,7 +217,8 @@
 - A TUI that shows every machine, account and login, plus a command for everything it does.
 - Native on macOS, Linux and Windows, installed with `npm install --global favo-cli`.
 
-[Unreleased]: https://github.com/irwinarruda/favo-cli/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/irwinarruda/favo-cli/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/irwinarruda/favo-cli/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/irwinarruda/favo-cli/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/irwinarruda/favo-cli/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/irwinarruda/favo-cli/compare/v0.14.0...v0.14.1
