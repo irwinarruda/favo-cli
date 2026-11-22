@@ -93,17 +93,17 @@ describe('the way each provider updates', () => {
     const [codex] = await server.client.call(listProviderUpdates, {});
     expect(stepsOf(codex)).toEqual(['/opt/homebrew/bin/codex update']);
   });
-  it('uses the package manager for Antigravity, which has no command of its own', async () => {
+  it('goes straight to Homebrew for Antigravity, whose cask wrapper asks for Homebrew', async () => {
     const server = await serverWith({
-      agy: '/opt/homebrew/Caskroom/antigravity-cli/1.4.12,4768735748292608/antigravity',
+      agy: '/opt/homebrew/Caskroom/antigravity-cli/1.5.14,5302690847260672/.homebrew-command-wrappers/agy',
     });
     const [agy] = await server.client.call(listProviderUpdates, {});
     expect(stepsOf(agy)).toEqual([`${Brew} upgrade --cask antigravity-cli`]);
   });
-  it('offers nothing for an Antigravity no package manager holds', async () => {
-    const server = await serverWith({ agy: `${Home}/.local/bin/antigravity` });
+  it('uses agy update for a standalone Antigravity no package manager holds', async () => {
+    const server = await serverWith({ agy: `${Home}/.local/bin/agy` });
     const [agy] = await server.client.call(listProviderUpdates, {});
-    expect(agy?.steps).toEqual([]);
+    expect(stepsOf(agy)).toEqual(['/opt/homebrew/bin/agy update']);
   });
   it('never treats a version manager shim as the thing it runs', async () => {
     const server = await serverWith({ claude: '/opt/homebrew/Cellar/mise/2026.10.0/bin/mise' });

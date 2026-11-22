@@ -36,7 +36,6 @@ const AgeUnits = [
 ];
 
 export const UnpricedLabel = 'unpriced';
-export const NotCountedLabel = 'not counted yet';
 export const NothingSelectedMessage = 'Nothing is selected.';
 export const NoTokensMessage = 'No tokens counted in this period.';
 

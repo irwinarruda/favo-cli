@@ -1,5 +1,12 @@
 import { ProviderId } from '@favo/domain/providers/provider';
 import { DomainError } from '@favo/domain/shared/domain-error';
+import {
+  AntigravityTokenFiles,
+  AntigravityTokenMarkers,
+  antigravitySessionOf,
+  antigravityTokenFolderOf,
+  readAntigravityTokenLine,
+} from '@favo/domain/usage/antigravity-token-log';
 import { ClaudeTokenFiles, ClaudeTokenMarkers, readClaudeTokenLine } from '@favo/domain/usage/claude-token-log';
 import {
   CodexTokenFiles,
@@ -88,6 +95,7 @@ export class TokensService {
       const ofProvider = logs.filter((log) => log.provider === provider);
       if (provider === ProviderId.claude) await this.readClaude(ofProvider, ledger);
       else if (provider === ProviderId.codex) await this.readCodex(ofProvider, ledger);
+      else if (provider === ProviderId.antigravity) await this.readAntigravity(ofProvider, ledger);
       else await this.readOpencode(ofProvider, ledger);
       fresh.push(...tokenRowsOf(ledger, provider));
       Object.assign(read, tokenLogIndexOf(ledger, provider));
@@ -111,6 +119,9 @@ export class TokensService {
     if (provider === ProviderId.opencode) {
       return this.logs.files(opencodeTokenFolderOf(account, path), OpencodeTokenFiles.suffixes, false);
     }
+    if (provider === ProviderId.antigravity) {
+      return this.logs.childFiles(antigravityTokenFolderOf(account, path), AntigravityTokenFiles.relativePath);
+    }
     const { folder, suffixes } = provider === ProviderId.claude ? ClaudeTokenFiles : CodexTokenFiles;
     return this.logs.files(`${path}/${folder}`, suffixes);
   }
@@ -131,6 +142,15 @@ export class TokensService {
       const rollout = createCodexRollout(log.session);
       await this.readLog(log, ledger, () =>
         this.logs.read(log.path, CodexTokenMarkers, (line) => readCodexTokenLine(ledger, rollout, line))
+      );
+    }
+  }
+
+  private async readAntigravity(logs: SeatTokenLog[], ledger: TokenLedger) {
+    for (const log of logs) {
+      const session = antigravitySessionOf(log.path);
+      await this.readLog(log, ledger, () =>
+        this.logs.read(log.path, AntigravityTokenMarkers, (line) => readAntigravityTokenLine(ledger, session, line))
       );
     }
   }

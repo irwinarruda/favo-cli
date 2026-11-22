@@ -162,10 +162,9 @@ describe('the Tokens page', () => {
     expect(frame).toMatch(/macbook +█+░+\s+992M\s+90%\s+\$930/);
     expect(frame).toMatch(/devbox +█+░+\s+108M\s+10%\s+\$136/);
   });
-  test('keeps the line of a machine that is down, and names what it does not count yet', async () => {
+  test('keeps the line of a machine that is down', async () => {
     const { captureCharFrame } = await openTokens();
     expect(captureCharFrame()).toMatch(/studio +offline/);
-    expect(captureCharFrame()).toContain('Antigravity  not counted yet');
   });
   test('says what the tokens were, and how much came from cache', async () => {
     const { captureCharFrame } = await openTokens();
@@ -229,7 +228,7 @@ describe('the Tokens page', () => {
     expect(frame.indexOf(note)).toBeGreaterThan(frame.indexOf('gpt-6-astra'));
     const spans = captureSpans().lines.flatMap((line) => line.spans);
     const colorOf = (text: string) => spans.find((span) => span.text.includes(text))?.fg.toString();
-    expect(colorOf('2 records could not be read')).toBe(colorOf('not counted yet'));
+    expect(colorOf('2 records could not be read')).toBe(colorOf('offline'));
     expect(colorOf('2 records could not be read')).not.toBe(colorOf('1.1B tokens'));
   });
   test('works without prices, with no cost column', async () => {

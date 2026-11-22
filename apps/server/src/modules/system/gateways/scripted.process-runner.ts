@@ -6,15 +6,18 @@ import {
 } from '@/modules/system/gateways/process-runner';
 
 type Reply = Partial<ProcessResult>;
+type Responder = (line: string) => string | string[] | undefined | Promise<string | string[] | undefined>;
 
 export class ScriptedProcessRunner extends ProcessRunner {
   readonly calls: ProcessRequest[] = [];
   readonly killed: ProcessRequest[] = [];
+  readonly writes: { commandLine: string; line: string }[] = [];
   killOpenCount = 0;
   readonly gone = new Set<number>();
   private readonly replies = new Map<string, Reply>();
   private readonly conversations = new Map<string, string[]>();
   private readonly conversationsInTurn = new Map<string, string[][]>();
+  private readonly responders = new Map<string, Responder>();
   private readonly installed = new Map<string, string>();
   private readonly elsewhere = new Map<string, string>();
   private readonly undetachable = new Set<string>();
@@ -44,6 +47,14 @@ export class ScriptedProcessRunner extends ProcessRunner {
     this.conversationsInTurn.set(commandLine, conversations);
   }
 
+  respond(commandLine: string, responder: Responder) {
+    this.responders.set(commandLine, responder);
+  }
+
+  writtenFor(commandLine: string) {
+    return this.writes.filter((entry) => entry.commandLine === commandLine).map((entry) => entry.line);
+  }
+
   async run(request: ProcessRequest) {
     this.calls.push(request);
     const reply = this.replies.get(lineOf(request));
@@ -52,17 +63,27 @@ export class ScriptedProcessRunner extends ProcessRunner {
 
   open(request: ProcessRequest): PipedProcess {
     this.calls.push(request);
-    const lines = this.conversationsInTurn.get(lineOf(request))?.shift() ?? this.conversations.get(lineOf(request));
+    const commandLine = lineOf(request);
+    const responder = this.responders.get(commandLine);
+    const lines = this.conversationsInTurn.get(commandLine)?.shift() ?? this.conversations.get(commandLine);
     const listeners: ((line: string) => void)[] = [];
-    const { killed } = this;
+    const { killed, writes } = this;
     return {
-      write() {
-        for (const line of lines ?? []) for (const listener of listeners) listener(line);
+      write(line) {
+        writes.push({ commandLine, line });
+        if (responder) {
+          void Promise.resolve(responder(line)).then((answered) => {
+            const emitted = answered === undefined ? [] : Array.isArray(answered) ? answered : [answered];
+            for (const entry of emitted) for (const listener of listeners) listener(entry);
+          });
+          return;
+        }
+        for (const entry of lines ?? []) for (const listener of listeners) listener(entry);
       },
       onLine(listener) {
         listeners.push(listener);
       },
-      exited: lines ? new Promise(() => {}) : Promise.resolve({ code: 127, stderr: 'not found' }),
+      exited: responder || lines ? new Promise(() => {}) : Promise.resolve({ code: 127, stderr: 'not found' }),
       kill() {
         killed.push(request);
       },

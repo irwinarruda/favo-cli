@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { createAccount } from '@favo/contracts/rpc/accounts/create-account';
 import { addMachine } from '@favo/contracts/rpc/machines/add-machine';
+import { getSeatStatus } from '@favo/contracts/rpc/seats/get-seat-status';
 import { provisionSeat } from '@favo/contracts/rpc/seats/provision-seat';
 import { readLimits } from '@favo/contracts/rpc/seats/read-limits';
+import { listThreads } from '@favo/contracts/rpc/threads/list-threads';
 import { LoginState } from '@favo/contracts/rpc/views';
 import { createTestServer, Home, seedClaudeBase } from '#test/support/test-server';
 
@@ -104,6 +106,23 @@ describe('the environment of a read', () => {
     expect(clis.claude.limitsSessions.map(({ env }) => env.CLAUDE_CONFIG_DIR)).toContain(
       `${Home}/.favo/accounts/work/claude`
     );
+  });
+  it('clears ambient provider variables for account status and recent thread lookups too', async () => {
+    const { client, clis } = await serverWithWork({ callerEnv: { ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:1' } });
+    let threadEnv: Record<string, string | undefined> | undefined;
+    clis.antigravity.limitsEnvironment = () => ({ env: {}, unsetEnv: ['ANTIGRAVITY_LS_ADDRESS'] });
+    clis.antigravity.recentThreads = async ({ session }) => {
+      threadEnv = session.env;
+      return [];
+    };
+    await client.call(provisionSeat, { account: 'work', provider: 'antigravity' });
+    await client.call(getSeatStatus, { account: 'work', provider: 'antigravity' });
+    const statusEnv = clis.antigravity.sessions.at(-1)?.env;
+    expect(statusEnv && Object.hasOwn(statusEnv, 'ANTIGRAVITY_LS_ADDRESS')).toBe(true);
+    expect(statusEnv?.ANTIGRAVITY_LS_ADDRESS).toBeUndefined();
+    await client.call(listThreads, { account: 'work', provider: 'antigravity' });
+    expect(threadEnv && Object.hasOwn(threadEnv, 'ANTIGRAVITY_LS_ADDRESS')).toBe(true);
+    expect(threadEnv?.ANTIGRAVITY_LS_ADDRESS).toBeUndefined();
   });
 });
 

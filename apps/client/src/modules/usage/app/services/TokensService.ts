@@ -1,9 +1,8 @@
 import { isOlderFavoError } from '@favo/domain/machines/machine';
-import { type ProviderId, ProviderOrder, Providers } from '@favo/domain/providers/provider';
 import { ownValue } from '@favo/domain/shared/own-value';
 import type { ValueOf } from '@favo/domain/shared/value-of';
 import { readingAgeOf } from '@favo/domain/usage/seat-limits';
-import { NoTokenPrices, type TokenPrices } from '@favo/domain/usage/token-prices';
+import { NoTokenPrices, priceLookupModelsOf, type TokenPrices } from '@favo/domain/usage/token-prices';
 import {
   PeriodWindows,
   type TokenMachine,
@@ -11,11 +10,10 @@ import {
   type TokenReport,
   tokenReportOf,
 } from '@favo/domain/usage/token-report';
-import { type MachineTokenUsage, TokenProviders, TokenUsageFreshForMs } from '@favo/domain/usage/token-usage';
+import { type MachineTokenUsage, TokenUsageFreshForMs } from '@favo/domain/usage/token-usage';
 import { lastReadOf } from '@favo/domain/usage/token-view';
 import { UsagePage } from '@favo/domain/usage/usage-view';
 import { computeFrom } from '@/libs/zustand';
-import type { Account } from '@/modules/comb/app/entities/Account';
 import type { Machine } from '@/modules/comb/app/entities/Machine';
 import { MachinePresence } from '@/modules/comb/app/enums/MachinePresence';
 import { container } from '@/shared/container';
@@ -44,7 +42,6 @@ export type TokensService = {
   tokenBreakdown: TokenBreakdown;
   tokenReport: TokenReport;
   tokenReadingLabel: string;
-  uncountedProviders: string[];
   skippedTokenRecords: number;
   isTokensReading: boolean;
   hasTokenReadings: boolean;
@@ -95,7 +92,6 @@ export const createTokensService: ServiceCreator<TokensService> = (set, get) => 
           timeZone: usageTimeZone,
           accountNames: Object.fromEntries(accounts.map((account) => [account.name, account.displayName])),
         }),
-        uncountedProviders: _uncountedProviders(accounts, usageFilter.providers),
         skippedTokenRecords: shown.reduce(
           (total, machine) => total + (ownValue(machineTokens, machine.id)?.usage?.skippedRecords ?? 0),
           0
@@ -168,7 +164,7 @@ export const createTokensService: ServiceCreator<TokensService> = (set, get) => 
   async loadTokenPrices(isFresh) {
     const usageRepository = container.get('IUsageRepository');
     const rows = Object.values(get().machineTokens).flatMap(({ usage }) => usage?.rows ?? []);
-    const models = [...new Set(rows.map((row) => row.model))];
+    const models = priceLookupModelsOf(rows);
     if (models.length === 0) return;
     set({ tokenPrices: await usageRepository.readPrices(models, isFresh) });
   },
@@ -232,13 +228,4 @@ function _tokenMachineOf(machine: Machine, tokens: MachineTokens | undefined, no
   if (tokens?.problem) return { id, name, rows, note: `could not read${age}`, isFaded: true };
   if (!machine.isOnline) return { id, name, rows, note: `${machine.presenceLabel}${age}`, isFaded: true };
   return { id, name, rows };
-}
-
-function _uncountedProviders(accounts: Account[], hidden: string[]) {
-  const installed = new Set<ProviderId>(
-    accounts.flatMap((account) => account.visibleSeats.map((seat) => seat.provider))
-  );
-  return ProviderOrder.filter((id) => installed.has(id) && !TokenProviders.includes(id) && !hidden.includes(id)).map(
-    (id) => Providers[id].label
-  );
 }

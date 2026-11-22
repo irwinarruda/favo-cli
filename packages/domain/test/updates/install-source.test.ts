@@ -170,9 +170,10 @@ describe('which provider can update itself', () => {
       expect(canUpdateItself(Providers.opencode, source)).toBe(true);
     }
   });
-  it('knows no command for Antigravity', () => {
+  it('leaves Homebrew out for Antigravity, which updates through Homebrew there and agy update elsewhere', () => {
     expect(canUpdateItself(Providers.antigravity, homebrew)).toBe(false);
-    expect(canUpdateItself(Providers.antigravity, undefined)).toBe(false);
+    expect(canUpdateItself(Providers.antigravity, npm)).toBe(true);
+    expect(canUpdateItself(Providers.antigravity, undefined)).toBe(true);
   });
 });
 

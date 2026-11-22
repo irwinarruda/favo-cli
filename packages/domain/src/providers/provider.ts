@@ -163,7 +163,12 @@ export const Providers: Record<ProviderId, ProviderSpec> = {
       sharedItem: '.gemini/config',
       event: 'PreInvocation',
     },
-    update: { packages: ['antigravity-cli'], switches: ['AGY_CLI_DISABLE_AUTO_UPDATE'] },
+    update: {
+      packages: ['antigravity-cli'],
+      arguments: ['update'],
+      refusedOn: [InstallMethod.homebrew],
+      switches: ['AGY_CLI_DISABLE_AUTO_UPDATE'],
+    },
   },
   opencode: {
     id: ProviderId.opencode,

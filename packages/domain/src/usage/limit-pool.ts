@@ -14,6 +14,8 @@ import {
 } from '#domain/usage/seat-limits';
 
 const ClaudeOverallWeekId = 'seven_day';
+const AntigravitySessionSuffix = '-5h';
+const AntigravityWeekSuffix = '-weekly';
 
 export type LimitSeat = {
   key: string;
@@ -136,15 +138,31 @@ function poolKeyOf(provider: ProviderId, window: LimitWindow) {
   return provider === ProviderId.codex ? window.kind : `${window.kind}:${window.id}`;
 }
 
-function isOverallWeek(provider: ProviderId, window: LimitWindow) {
-  if (provider === ProviderId.claude) return window.id === ClaudeOverallWeekId;
-  return provider === ProviderId.codex && window.kind === LimitWindowKind.weekly;
+function isBlockingWeek(provider: ProviderId, session: LimitWindow, candidate: LimitWindow) {
+  if (provider === ProviderId.claude) return candidate.id === ClaudeOverallWeekId;
+  if (provider === ProviderId.codex) return candidate.kind === LimitWindowKind.weekly;
+  if (provider === ProviderId.antigravity) {
+    if (candidate.kind !== LimitWindowKind.weekly) return false;
+    if (session.id.endsWith(AntigravitySessionSuffix)) {
+      return candidate.id === `${session.id.slice(0, -AntigravitySessionSuffix.length)}${AntigravityWeekSuffix}`;
+    }
+    const group = windowGroupOf(session.label);
+    return group !== undefined && windowGroupOf(candidate.label) === group;
+  }
+  return false;
+}
+
+function windowGroupOf(label: string) {
+  const separator = label.indexOf(' · ');
+  return separator < 0 ? undefined : label.slice(separator + 3);
 }
 
 function memberOf(seat: LimitPoolSeat, reported: LimitWindow, now: number): LimitPoolMember {
   const spentWeek = seat.usage.windows.find(
     (window) =>
-      reported.kind === LimitWindowKind.session && window.usedPercent >= 100 && isOverallWeek(seat.provider, window)
+      reported.kind === LimitWindowKind.session &&
+      window.usedPercent >= 100 &&
+      isBlockingWeek(seat.provider, reported, window)
   );
   if (!spentWeek) {
     const reset = resetMillisOf(reported);

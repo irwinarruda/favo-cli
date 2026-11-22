@@ -220,6 +220,21 @@ describe('a spent week blocks the session', () => {
     const pool = poolOf([seatOf('a', [session, week], { provider: ProviderId.codex })]);
     expect(pool.windows.find(({ kind }) => kind === 'session')?.remainingPercent).toBe(0);
   });
+  it('pairs each Antigravity group week only with its own five-hour session', () => {
+    const geminiSession = { ...sessionOf(10), id: 'gemini-5h', label: 'Session · Gemini' };
+    const geminiWeek = { ...weekOf(100), id: 'gemini-weekly', label: 'Weekly · Gemini' };
+    const thirdPartySession = { ...sessionOf(20), id: '3p-5h', label: 'Session · Claude & GPT' };
+    const thirdPartyWeek = { ...weekOf(30), id: '3p-weekly', label: 'Weekly · Claude & GPT' };
+    const pool = poolOf([
+      seatOf('a', [geminiSession, geminiWeek, thirdPartySession, thirdPartyWeek], { provider: ProviderId.antigravity }),
+    ]);
+    expect(pool.windows.find(({ id }) => id === 'gemini-5h')?.remainingPercent).toBe(0);
+    expect(pool.windows.find(({ id }) => id === '3p-5h')?.remainingPercent).toBe(80);
+    const customSession = { ...sessionOf(15), id: 'bucket_a', label: 'Session · Argon' };
+    const customWeek = { ...weekOf(100), id: 'bucket_b', label: 'Weekly · Argon' };
+    const byGroup = poolOf([seatOf('a', [customSession, customWeek], { provider: ProviderId.antigravity })]);
+    expect(byGroup.windows.find(({ id }) => id === 'bucket_a')?.remainingPercent).toBe(0);
+  });
   it('does not apply to a provider with no such rule', () => {
     const pool = poolOf([seatOf('a', [sessionOf(10), weekOf(100)], { provider: ProviderId.opencode })]);
     expect(pool.windows.find(({ kind }) => kind === 'session')?.remainingPercent).toBe(90);

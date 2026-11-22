@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- Antigravity CLI (`agy`) now shows your signed-in Google email and, for consumer Google sign-ins, your plan tier (such as `Google AI Pro`) in the comb and `favo list`, matching Claude Code and Codex.
+- Antigravity is now included on the Limits page and `favo usage` (5-hour and weekly quota windows for Gemini, Claude & GPT and Argon pools, read through `agy -p /usage --output-format json` without reading any token or creating a conversation).
+- Antigravity is now counted on the Tokens and Cost pages and in `favo usage --tokens` and `--cost`, reading only the numbers, timestamps, model names and step IDs from each seat's `transcript.jsonl` files. Effort-suffixed Antigravity model names (such as `-high` or `-xhigh`) fall back to their base model's API list price when the price table has it.
+- Without hooks installed, `favo threads agy` and `favo resume agy` now fall back to listing conversations for the current folder through `agy acp`, matching Codex and OpenCode.
+- `favo login agy <account>` over SSH now runs `agy acp --login` so you can sign in from a remote terminal without a local browser.
+- Standalone Antigravity installs now update through `agy update` during `favo update --providers`.
+
+### Fixed
+
+- Running `favo update --providers` from inside a Homebrew-installed `agy` session no longer mistakes Homebrew's `AGY_CLI_DISABLE_AUTO_UPDATE=true` wrapper for a user opt-out, so `brew upgrade --cask antigravity-cli` runs as expected. Setting `AGY_CLI_DISABLE_AUTO_UPDATE` yourself still holds it back, and falsy values such as `0` or `false` no longer hold it back.
+- `favo hooks status` now notices when the `favo` block in `.gemini/config/hooks.json` has `"enabled": false`.
+
 ## [0.16.0] - 2026-11-14
 
 ### Added

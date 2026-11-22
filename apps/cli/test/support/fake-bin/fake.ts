@@ -116,14 +116,84 @@ async function codex() {
   }
 }
 
-function agy() {
+async function agy() {
+  const versionFile = process.env.FAKE_AGY_VERSION_FILE;
   if (args[0] === '--version') {
-    console.log('1.4.12');
+    console.log(versionFile ? readFileSync(versionFile, 'utf8') : '1.5.14');
+    return;
+  }
+  if (args[0] === 'update') {
+    console.log('fake agy updating');
+    if (versionFile) writeFileSync(versionFile, '1.5.15');
+    return;
+  }
+  if (args[0] === '-p' && args[1] === '/usage') {
+    const reset = new Date(Date.now() + UsageResetMs).toISOString();
+    console.log(
+      JSON.stringify({
+        conversation_id: '',
+        status: 'SUCCESS',
+        command: {
+          name: 'usage',
+          data: {
+            groups: [
+              {
+                name: 'Gemini Models',
+                buckets: [{ id: 'gemini-5h', window: '5h', remaining_fraction: 0.77, reset_time: reset }],
+              },
+            ],
+          },
+        },
+      })
+    );
+    return;
+  }
+  if (args[0] === 'acp' && args.includes('--stdio')) {
+    const logIndex = args.indexOf('--log-file');
+    const logFile = logIndex >= 0 ? args[logIndex + 1] : undefined;
+    const isSignedIn = existsSync(`${home}/.gemini/antigravity-cli/signed-in`);
+    const email = isSignedIn ? readFileSync(`${home}/.gemini/antigravity-cli/signed-in`, 'utf8').trim() : '';
+    for await (const line of console) {
+      let message: { id?: number; method?: string } | undefined;
+      try {
+        message = JSON.parse(line) as { id?: number; method?: string };
+      } catch {
+        continue;
+      }
+      if (message.method === 'initialize') {
+        console.log(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }));
+      }
+      if (message.method === 'session/list') {
+        if (!isSignedIn) {
+          console.log(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: message.id,
+              error: { code: -32000, message: 'Authentication required' },
+            })
+          );
+        } else {
+          if (logFile && email) {
+            writeFileSync(logFile, `applyAuthResult: email=${email}, authMethod=consumer, quotaProject=\n`);
+          }
+          console.log(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { sessions: [] } }));
+        }
+      }
+      if (message.method === 'authenticate') {
+        console.log(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: { _meta: { antigravity: { tier: { name: 'Google AI Pro' } } } },
+          })
+        );
+      }
+    }
     return;
   }
   if (args[0] === 'models') {
     if (existsSync(`${home}/.gemini/antigravity-cli/signed-in`)) {
-      console.log('gemini-3');
+      console.log('gemini-4-neon-xhigh');
       return;
     }
     console.error('Error: Please sign in to view available models.');

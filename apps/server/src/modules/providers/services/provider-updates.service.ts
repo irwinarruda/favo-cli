@@ -97,6 +97,7 @@ export class ProviderUpdatesService {
     const install = await this.installOf(provider);
     if (!install) return undefined;
     const { spec, binary, realPath, source } = install;
+    const steps = await this.stepsOf(spec, binary, source);
     return {
       provider,
       label: spec.label,
@@ -104,8 +105,8 @@ export class ProviderUpdatesService {
       installedWith: install.installedWith,
       otherCopies: await this.otherCopies(spec.executable, realPath),
       runningAccounts: await this.runningNames(provider),
-      heldBack: await this.heldBack(provider, source),
-      steps: await this.stepsOf(spec, binary, source),
+      heldBack: (await this.heldBack(provider, source)) ?? this.missingManagerOf(spec, source, steps),
+      steps,
     };
   }
 
@@ -151,6 +152,11 @@ export class ProviderUpdatesService {
     const off = await this.providers.cliOf(provider).updateSwitch(search, this.fileSystem);
     if (off) return `its updates are turned off by ${off}`;
     return source && (await this.isPinned(source)) ? 'it is pinned in Homebrew' : undefined;
+  }
+
+  private missingManagerOf(spec: ProviderSpec, source: InstallSource | undefined, steps: TerminalPlan[]) {
+    if (steps.length > 0 || !source || canUpdateItself(spec, source)) return undefined;
+    return `favo could not find ${PackageManagers[source.method]} to update it`;
   }
 
   private async stepsOf(spec: ProviderSpec, binary: string, source?: InstallSource) {

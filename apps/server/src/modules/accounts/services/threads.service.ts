@@ -168,7 +168,7 @@ export class ThreadsService {
   private async guesses(account: string, provider: ProviderId, directory: string) {
     const binary = await this.providers.binaryOf(provider);
     if (!binary || !(await this.seats.isProvisioned(account, provider))) return [];
-    const session = { binary, env: await this.providers.environmentOf(account, provider) };
+    const session = { binary, env: await this.providers.probeEnvironmentOf(account, provider) };
     const seatHome = this.providers.seatHome(account, provider);
     const search = { session, seatHome, directory };
     const found = await this.providers.cliOf(provider).recentThreads(search, this.fileSystem);

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  HookBlockReason,
   HookState,
   HookVersion,
+  hookBlockReasonOf,
   hookCommandOf,
   hookPathOf,
   hookStateOf,
-  isHookBlocked,
   withHook,
   withoutHook,
 } from '#domain/hooks/provider-hook';
@@ -120,10 +121,14 @@ describe('adding the hook', () => {
     expect(withHook(claude, '{\n    "model": "opus"\n}\n', false)).toContain('\n    "model"');
     expect(withHook(claude, '{\n\t"model": "opus"\n}\n', false)).toContain('\n\t"model"');
   });
-  it('writes a named block for Antigravity, leaving the others', () => {
-    const text = JSON.stringify({ mine: { PreInvocation: [{ type: 'command', command: 'x' }] } });
+  it('writes a named block for Antigravity, leaving the others and preserving enabled false', () => {
+    const text = JSON.stringify({
+      mine: { PreInvocation: [{ type: 'command', command: 'x' }] },
+      favo: { enabled: false, PreInvocation: [{ type: 'command', command: 'old favo-hook:antigravity:0' }] },
+    });
     const config = JSON.parse(withHook(antigravity, text, false));
     expect(config.mine.PreInvocation[0].command).toBe('x');
+    expect(config.favo.enabled).toBe(false);
     expect(config.favo.PreInvocation[0].timeout).toBe(5);
     expect(hookStateOf(antigravity, JSON.stringify(config))).toBe(HookState.current);
   });
@@ -212,9 +217,12 @@ describe('removing the hook', () => {
 });
 
 describe('a provider told to run no hooks', () => {
-  it('shows in the config', () => {
-    expect(isHookBlocked(claude, '{"disableAllHooks":true}')).toBe(true);
-    expect(isHookBlocked(claude, '{"disableAllHooks":false}')).toBe(false);
-    expect(isHookBlocked(claude, undefined)).toBe(false);
+  it('tells disableAllHooks apart from a disabled Antigravity block', () => {
+    expect(hookBlockReasonOf(claude, '{"disableAllHooks":true}')).toBe(HookBlockReason.disableAllHooks);
+    expect(hookBlockReasonOf(claude, '{"disableAllHooks":false}')).toBeUndefined();
+    expect(hookBlockReasonOf(antigravity, '{"disableAllHooks":true}')).toBe(HookBlockReason.disableAllHooks);
+    expect(hookBlockReasonOf(antigravity, '{"favo":{"enabled":false}}')).toBe(HookBlockReason.disabledBlock);
+    expect(hookBlockReasonOf(antigravity, '{"favo":{"enabled":true}}')).toBeUndefined();
+    expect(hookBlockReasonOf(claude, undefined)).toBeUndefined();
   });
 });

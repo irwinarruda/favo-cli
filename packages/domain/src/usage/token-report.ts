@@ -268,8 +268,9 @@ function scan(input: Omit<TokenReportInput, 'metric' | 'accountNames'>, visit: (
       const { day, hour } = localOf(at);
       const isInside = window.unit === TokenWindowUnit.hours ? at >= firstHour && at <= thisHour : day >= since;
       if (!isInside || day > until) continue;
-      if (!rates.has(row.model)) rates.set(row.model, findTokenRate(prices.rates, row.model));
-      visit({ machine, row, at, day, hour, rate: rates.get(row.model) });
+      const rateKey = `${row.provider}\n${row.model}`;
+      if (!rates.has(rateKey)) rates.set(rateKey, findTokenRate(prices.rates, row.model, row.provider));
+      visit({ machine, row, at, day, hour, rate: rates.get(rateKey) });
     }
   }
   return { until };

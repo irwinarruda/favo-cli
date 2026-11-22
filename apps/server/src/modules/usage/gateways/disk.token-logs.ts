@@ -32,6 +32,22 @@ export class DiskTokenLogs extends TokenLogs {
     return { ...found, root, files: found.files.toSorted((left, right) => (left.path < right.path ? -1 : 1)) };
   }
 
+  async childFiles(folder: string, relativePath: string) {
+    const root = await realPathOf(folder);
+    if (root === undefined) return { files: [] };
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const files: TokenLogFolder['files'] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      const path = `${folder}/${entry.name}/${relativePath}`;
+      const realPath = await realPathOf(`${root}/${entry.name}/${relativePath}`);
+      const info = realPath === undefined ? undefined : await stat(realPath).catch(() => undefined);
+      if (realPath === undefined || !info?.isFile()) continue;
+      files.push({ path, realPath, createdAt: info.birthtimeMs > 0 ? info.birthtimeMs : undefined });
+    }
+    return { root, files: files.toSorted((left, right) => (left.path < right.path ? -1 : 1)) };
+  }
+
   async read(path: string, markers: string[], onLine: (line: string) => void) {
     try {
       const needles = markers.map((marker) => Buffer.from(marker));

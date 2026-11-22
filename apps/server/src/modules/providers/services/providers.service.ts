@@ -48,6 +48,13 @@ export class ProvidersService {
     return { PATH: await this.shell.path(), ...isolation } as Record<string, string>;
   }
 
+  async probeEnvironmentOf(account: string, provider: ProviderId) {
+    const { env, unsetEnv } = this.cliOf(provider).limitsEnvironment(this.callerEnv);
+    const cleared = Object.fromEntries(unsetEnv.map((name) => [name, undefined]));
+    const seatEnv = await this.environmentOf(account, provider);
+    return { ...cleared, ...seatEnv, ...env };
+  }
+
   async isolationArgumentsOf(account: string, provider: ProviderId) {
     if (isPersonalAccount(account)) return [];
     const binary = await this.requireBinary(provider);
@@ -57,6 +64,6 @@ export class ProvidersService {
   async loginOf(account: string, provider: ProviderId) {
     const binary = await this.binaryOf(provider);
     if (!binary) return { login: LoginState.notInstalled };
-    return this.cliOf(provider).status({ binary, env: await this.environmentOf(account, provider) });
+    return this.cliOf(provider).status({ binary, env: await this.probeEnvironmentOf(account, provider) });
   }
 }

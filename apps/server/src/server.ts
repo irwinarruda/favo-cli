@@ -108,7 +108,7 @@ export function createServer(gateways: ServerGateways, options: ServerOptions) {
     clock,
     paths
   );
-  const limits = new LimitsService(accounts, providers, fileSystem, clock, paths, callerEnv);
+  const limits = new LimitsService(accounts, providers, fileSystem, clock, paths);
   const tokens = new TokensService(accounts, tokenLogs, new TokenUsageRepository(fileSystem, paths), clock);
   const prices = new PricesService(priceSource, new PriceTableRepository(fileSystem, paths), clock);
   const usageView = new UsageViewService(config);

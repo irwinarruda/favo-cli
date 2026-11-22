@@ -18,6 +18,12 @@ export const HookState = {
 } as const;
 export type HookState = ValueOf<typeof HookState>;
 
+export const HookBlockReason = {
+  disableAllHooks: 'disableAllHooks',
+  disabledBlock: 'disabledBlock',
+} as const;
+export type HookBlockReason = ValueOf<typeof HookBlockReason>;
+
 type JsonObject = Record<string, unknown>;
 
 export function hookCommandOf(provider: ProviderId, isWindows: boolean) {
@@ -46,16 +52,22 @@ export function hookStateOf(spec: ProviderSpec, text: string | undefined): HookS
   return stateOfVersion(versions.find((version) => version !== undefined));
 }
 
-export function isHookBlocked(spec: ProviderSpec, text: string | undefined) {
-  if (text === undefined || spec.hook.kind === HookKind.plugin) return false;
-  return parseConfig(spec, text).disableAllHooks === true;
+export function hookBlockReasonOf(spec: ProviderSpec, text: string | undefined): HookBlockReason | undefined {
+  if (text === undefined || spec.hook.kind === HookKind.plugin) return undefined;
+  const config = parseConfig(spec, text);
+  if (config.disableAllHooks === true) return HookBlockReason.disableAllHooks;
+  if (spec.hook.kind !== HookKind.namedBlock) return undefined;
+  const block = config[NamedBlock];
+  return isObject(block) && block.enabled === false ? HookBlockReason.disabledBlock : undefined;
 }
 
 export function withHook(spec: ProviderSpec, text: string | undefined, isWindows: boolean) {
   const config = parseConfig(spec, text);
   const entry = { type: 'command', command: hookCommandOf(spec.id, isWindows), timeout: HookTimeoutSeconds };
-  if (spec.hook.kind === HookKind.namedBlock) config[NamedBlock] = { [spec.hook.event!]: [entry] };
-  else placeInGroups(spec, config, entry);
+  if (spec.hook.kind === HookKind.namedBlock) {
+    const existing = isObject(config[NamedBlock]) ? config[NamedBlock] : {};
+    config[NamedBlock] = { ...existing, [spec.hook.event!]: [entry] };
+  } else placeInGroups(spec, config, entry);
   return serialized(config, text);
 }
 

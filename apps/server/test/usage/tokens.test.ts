@@ -16,6 +16,8 @@ const WorkCodexLogs = `${Home}/.favo/accounts/work/codex/sessions/2026/10/30`;
 const Rollout = 'rollout-2026-10-30T16-00-00-c.jsonl';
 const OpencodeDatabase = `${Home}/.local/share/opencode/opencode.db`;
 const WorkOpencodeDatabase = `${Home}/.favo/accounts/work/opencode/opencode/opencode.db`;
+const AntigravityTranscript = `${Home}/.gemini/antigravity-cli/brain/conv-1/.system_generated/logs/transcript.jsonl`;
+const WorkAntigravityTranscript = `${Home}/.favo/accounts/work/antigravity/.gemini/antigravity-cli/brain/conv-2/.system_generated/logs/transcript.jsonl`;
 
 function claudeLine(id: string, output: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -189,6 +191,72 @@ describe('reading the tokens of OpenCode', () => {
     const usage = await client.call(readTokenUsage, { isFresh: true });
     expect(usage.skippedRecords).toBe(1);
     expect(usage.rows.map(({ provider }) => provider)).toEqual(['claude', 'codex']);
+  });
+});
+
+describe('reading the tokens of Antigravity', () => {
+  function agyStep(stepIndex: number, output: number, overrides: Record<string, unknown> = {}) {
+    return {
+      step_index: stepIndex,
+      source: 'MODEL',
+      type: 'PLANNER_RESPONSE',
+      status: 'DONE',
+      created_at: '2026-10-30T19:05:00Z',
+      model: 'gemini-4-neon-xhigh',
+      input_tokens: 100,
+      cache_read_tokens: 2000,
+      output_tokens: output,
+      ...overrides,
+    };
+  }
+
+  it('counts personal and cell transcripts, ignoring transcript_full.jsonl and non-planner steps', async () => {
+    const { client, tokenLogs } = createTestServer();
+    await client.call(createAccount, { name: 'work' });
+    tokenLogs.write(AntigravityTranscript, [
+      { step_index: 0, type: 'USER_INPUT', content: 'secret' },
+      agyStep(1, 40),
+      agyStep(3, 60),
+    ]);
+    tokenLogs.write(`${Home}/.gemini/antigravity-cli/brain/conv-1/.system_generated/logs/transcript_full.jsonl`, [
+      agyStep(1, 40),
+    ]);
+    tokenLogs.write(WorkAntigravityTranscript, [agyStep(1, 25)]);
+    const usage = await client.call(readTokenUsage, { isFresh: true });
+    expect(usage.skippedRecords).toBe(0);
+    expect(usage.rows).toEqual([
+      {
+        hour: '2026-10-30T19:00:00.000Z',
+        account: 'personal',
+        provider: 'antigravity',
+        model: 'gemini-4-neon-xhigh',
+        input: 200,
+        cacheRead: 4000,
+        cacheWrite: 0,
+        output: 100,
+        sessions: 1,
+      },
+      {
+        hour: '2026-10-30T19:00:00.000Z',
+        account: 'work',
+        provider: 'antigravity',
+        model: 'gemini-4-neon-xhigh',
+        input: 100,
+        cacheRead: 2000,
+        cacheWrite: 0,
+        output: 25,
+        sessions: 1,
+      },
+    ]);
+  });
+  it('counts a copied conversation transcript once across accounts', async () => {
+    const { client, tokenLogs } = createTestServer();
+    await client.call(createAccount, { name: 'work' });
+    const copy = `${Home}/.favo/accounts/work/antigravity/.gemini/antigravity-cli/brain/conv-1/.system_generated/logs/transcript.jsonl`;
+    tokenLogs.write(AntigravityTranscript, [agyStep(1, 40)], 100);
+    tokenLogs.write(copy, [agyStep(1, 40)], 200);
+    const { rows } = await client.call(readTokenUsage, { isFresh: true });
+    expect(rows).toMatchObject([{ account: 'personal', provider: 'antigravity', output: 40, sessions: 1 }]);
   });
 });
 

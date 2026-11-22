@@ -19,8 +19,7 @@ export class LimitsService {
     private readonly providers: ProvidersService,
     private readonly fileSystem: FileSystem,
     private readonly clock: Clock,
-    private readonly paths: FavoPaths,
-    private readonly callerEnv: Record<string, string | undefined>
+    private readonly paths: FavoPaths
   ) {}
 
   stop() {
@@ -64,10 +63,10 @@ export class LimitsService {
   }
 
   private async sessionOf(account: string, provider: ProviderId) {
-    const { env, unsetEnv } = this.providers.cliOf(provider).limitsEnvironment(this.callerEnv);
-    const cleared = Object.fromEntries(unsetEnv.map((name) => [name, undefined]));
-    const seatEnv = await this.providers.environmentOf(account, provider);
-    const binary = await this.providers.requireBinary(provider);
-    return { binary, env: { ...cleared, ...seatEnv, ...env }, cwd: this.paths.emptyFolder };
+    const [binary, env] = await Promise.all([
+      this.providers.requireBinary(provider),
+      this.providers.probeEnvironmentOf(account, provider),
+    ]);
+    return { binary, env, cwd: this.paths.emptyFolder };
   }
 }

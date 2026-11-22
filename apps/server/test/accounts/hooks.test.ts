@@ -217,12 +217,22 @@ describe('hooks that never run', () => {
     await server.client.call(installHooks, {});
     expect(await problemsOf(server, 'codex')).toEqual([]);
   });
-  it('reports disableAllHooks', async () => {
+  it('reports disableAllHooks and a disabled Antigravity block', async () => {
     const server = await serverWithSeat();
     await server.client.call(installHooks, {});
     const text = JSON.parse((await server.fileSystem.readText(Settings))!);
     await server.fileSystem.writePrivateText(Settings, JSON.stringify({ ...text, disableAllHooks: true }));
     expect(await problemsOf(server)).toEqual(['disableAllHooks is on in settings.json, so hooks never run.']);
+    const agyHooks = JSON.parse((await server.fileSystem.readText(AntigravityHooks))!);
+    agyHooks.favo.enabled = false;
+    await server.fileSystem.writePrivateText(AntigravityHooks, JSON.stringify(agyHooks));
+    expect(await problemsOf(server, 'antigravity')).toEqual([
+      "favo's hook is disabled in .gemini/config/hooks.json, so hooks never run.",
+    ]);
+    await server.fileSystem.writePrivateText(AntigravityHooks, JSON.stringify({ ...agyHooks, disableAllHooks: true }));
+    expect(await problemsOf(server, 'antigravity')).toEqual([
+      'disableAllHooks is on in .gemini/config/hooks.json, so hooks never run.',
+    ]);
   });
   it('reports a config it cannot read, and keeps listing the others', async () => {
     const server = await serverWithSeat();
