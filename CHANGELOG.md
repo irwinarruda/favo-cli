@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-22
+
 ### Fixed
 
 - On macOS, `favo update --providers` no longer leaves a Homebrew cask of Claude Code, Codex or Antigravity blocked behind "Apple could not verify" after it was upgraded. macOS holds every new cask download until Apple vouches for it online, and one lost answer blocked the new version until it was reinstalled. favo now releases each file of the new version that is signed by the same developer as the file it replaces, before favo runs it, so macOS no longer asks Apple about those files. A file from another signer, or one the old version did not have, keeps the check.
@@ -221,7 +223,8 @@
 - A TUI that shows every machine, account and login, plus a command for everything it does.
 - Native on macOS, Linux and Windows, installed with `npm install --global favo-cli`.
 
-[Unreleased]: https://github.com/irwinarruda/favo-cli/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/irwinarruda/favo-cli/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/irwinarruda/favo-cli/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/irwinarruda/favo-cli/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/irwinarruda/favo-cli/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/irwinarruda/favo-cli/compare/v0.14.1...v0.15.0
