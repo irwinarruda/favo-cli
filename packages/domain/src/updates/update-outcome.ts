@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ValueOf } from '#domain/shared/value-of';
+import { SignedInstall } from '#domain/updates/signed-install';
 
 export const UpdateState = {
   updating: 'updating',
@@ -27,10 +28,14 @@ export type UpdateRecord = z.infer<typeof UpdateRecord>;
 export const SavedUpdate = z.strictObject({
   ...UpdateRecord.shape,
   pid: z.number().optional(),
+  signedInstall: SignedInstall.optional(),
 });
 export type SavedUpdate = z.infer<typeof SavedUpdate>;
 
-export function settledRecordOf({ pid: _, ...record }: SavedUpdate, isUpdaterAlive: boolean): UpdateRecord {
+export function settledRecordOf(
+  { pid: _pid, signedInstall: _signedInstall, ...record }: SavedUpdate,
+  isUpdaterAlive: boolean
+): UpdateRecord {
   if (record.state !== UpdateState.updating || isUpdaterAlive) return record;
   return { ...record, state: UpdateState.stopped };
 }

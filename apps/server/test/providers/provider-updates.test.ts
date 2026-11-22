@@ -2,12 +2,20 @@ import { describe, expect, it } from 'bun:test';
 import { listProviderUpdates } from '@favo/contracts/rpc/updates/list-provider-updates';
 import { listProviderVersions } from '@favo/contracts/rpc/updates/list-provider-versions';
 import { recordProviderUpdate } from '@favo/contracts/rpc/updates/record-provider-update';
+import { startProviderUpdates } from '@favo/contracts/rpc/updates/start-provider-updates';
 import { createTestServer, Home, UpdaterPid } from '#test/support/test-server';
 import { ProviderRunRepository } from '@/modules/providers/repositories/provider-run.repository';
 
 const Brew = '/opt/homebrew/bin/brew';
 const CaskClaude = '/opt/homebrew/Caskroom/claude-code@latest/2.1.316/claude';
 const FormulaOpencode = '/opt/homebrew/Cellar/opencode-v2/2.2.5/bin/opencode';
+const OldCodex = '/opt/homebrew/Caskroom/codex/0.171.0';
+const NewCodex = '/opt/homebrew/Caskroom/codex/0.172.0';
+const CodexFiles = ['bin/codex', 'codex-path/rg', 'codex-package.json'];
+const CodexSigners: Record<string, string> = {
+  'bin/codex': 'identifier codex and certificate leaf[subject.OU] = "2DC432GLL2"',
+  'codex-path/rg': 'identifier rg and certificate leaf[subject.OU] = "2DC432GLL2"',
+};
 const NvmNode = `${Home}/.nvm/versions/node/v24.16.0`;
 const NpmCodex = `${NvmNode}/lib/node_modules/@openai/codex/bin/codex.js`;
 
@@ -20,6 +28,42 @@ async function serverWith(links: Record<string, string>, options: Parameters<typ
   }
   server.processes.install('brew', Brew);
   return server;
+}
+
+async function codexCask() {
+  const server = await serverWith({ codex: `${OldCodex}/bin/codex` });
+  for (const file of CodexFiles) await server.fileSystem.writePrivateText(`${OldCodex}/${file}`, '');
+  return server;
+}
+
+async function codexMidUpdate() {
+  const server = await codexCask();
+  for (const [file, signer] of Object.entries(CodexSigners)) {
+    const shown = { stdout: `designated => ${signer}\n` };
+    server.processes.reply(`/usr/bin/codesign --display --requirements - ${OldCodex}/${file}`, shown);
+  }
+  await server.client.call(recordProviderUpdate, { provider: 'codex', outcome: { state: 'updating' } });
+  return server;
+}
+
+async function upgradeCodex(server: Awaited<ReturnType<typeof serverWith>>) {
+  for (const file of CodexFiles) await server.fileSystem.writePrivateText(`${NewCodex}/${file}`, '');
+  await server.fileSystem.unlink('/opt/homebrew/bin/codex');
+  await server.fileSystem.link(`${NewCodex}/bin/codex`, '/opt/homebrew/bin/codex');
+}
+
+function linesOf(server: Awaited<ReturnType<typeof serverWith>>, command?: string) {
+  return server.processes.calls
+    .filter((call) => command === undefined || call.command === command)
+    .map((call) => [call.command, ...call.args].join(' '));
+}
+
+function release(file: string) {
+  return `/usr/bin/xattr -d com.apple.quarantine ${NewCodex}/${file}`;
+}
+
+function check(file: string) {
+  return `/usr/bin/codesign --verify -R=${CodexSigners[file]} ${NewCodex}/${file}`;
 }
 
 function stepsOf(view: { steps: { command: string; args: string[] }[] } | undefined) {
@@ -303,5 +347,90 @@ describe('the versions the comb shows', () => {
     await server.fileSystem.writePrivateText(`${server.paths.updates}/claude.json`, '{"state":');
     const [claude] = await server.client.call(listProviderVersions, {});
     expect(claude?.lastUpdate).toBeUndefined();
+  });
+});
+
+describe('a Homebrew cask that macOS holds until Apple vouches for it', () => {
+  it('lets a new version run when the signer of the old one signed it too', async () => {
+    const server = await codexMidUpdate();
+    await upgradeCodex(server);
+    await server.client.call(listProviderVersions, { provider: 'codex' });
+    expect(linesOf(server, '/usr/bin/xattr').filter((line) => line.includes(' -d '))).toEqual([
+      release('bin/codex'),
+      release('codex-path/rg'),
+    ]);
+  });
+  it('does so before favo runs the new version itself', async () => {
+    const server = await codexMidUpdate();
+    await upgradeCodex(server);
+    await server.client.call(listProviderVersions, { provider: 'codex' });
+    const lines = linesOf(server);
+    const released = lines.indexOf(release('bin/codex'));
+    expect(released).toBeGreaterThanOrEqual(0);
+    expect(released).toBeLessThan(lines.indexOf('/opt/homebrew/bin/codex --version'));
+  });
+  it('leaves a file held when another signer signed it', async () => {
+    const server = await codexMidUpdate();
+    await upgradeCodex(server);
+    server.processes.reply(check('bin/codex'), { code: 3 });
+    await server.client.call(listProviderVersions, { provider: 'codex' });
+    expect(linesOf(server)).toContain(check('bin/codex'));
+    expect(linesOf(server)).not.toContain(release('bin/codex'));
+    expect(linesOf(server)).toContain(release('codex-path/rg'));
+  });
+  it('never vouches for a file the old version did not sign', async () => {
+    const server = await codexMidUpdate();
+    await upgradeCodex(server);
+    await server.client.call(listProviderVersions, { provider: 'codex' });
+    expect(
+      linesOf(server).filter((line) => line.includes('codex-package.json') && !line.includes('--display'))
+    ).toEqual([]);
+  });
+  it('does not check a file macOS is not holding', async () => {
+    const server = await codexMidUpdate();
+    await upgradeCodex(server);
+    server.processes.reply(`/usr/bin/xattr -p com.apple.quarantine ${NewCodex}/bin/codex`, { code: 1 });
+    await server.client.call(listProviderVersions, { provider: 'codex' });
+    expect(linesOf(server)).not.toContain(check('bin/codex'));
+    expect(linesOf(server)).not.toContain(release('bin/codex'));
+  });
+  it('touches nothing while the version has not changed', async () => {
+    const server = await codexMidUpdate();
+    await server.client.call(listProviderVersions, { provider: 'codex' });
+    expect(linesOf(server, '/usr/bin/xattr')).toEqual([]);
+  });
+  it('touches nothing once the update is over', async () => {
+    const server = await codexMidUpdate();
+    await server.client.call(recordProviderUpdate, {
+      provider: 'codex',
+      outcome: { state: 'failed', reason: 'exit 1' },
+    });
+    await upgradeCodex(server);
+    await server.client.call(listProviderVersions, { provider: 'codex' });
+    expect(linesOf(server, '/usr/bin/xattr')).toEqual([]);
+  });
+  it('touches nothing once the favo that ran the update is gone', async () => {
+    const server = await codexMidUpdate();
+    await upgradeCodex(server);
+    server.processes.gone.add(UpdaterPid);
+    await server.client.call(listProviderVersions, { provider: 'codex' });
+    expect(linesOf(server, '/usr/bin/xattr')).toEqual([]);
+  });
+  it('leaves the signers to the favo that runs the update when the comb only starts it', async () => {
+    const server = await codexCask();
+    server.processes.detach({ command: 'earlier', args: [] });
+    await server.client.call(startProviderUpdates, {});
+    expect(linesOf(server, '/usr/bin/codesign')).toEqual([]);
+  });
+  it('remembers no signer for an install that is not a cask', async () => {
+    const server = await serverWith({ opencode: FormulaOpencode });
+    await server.fileSystem.writePrivateText(FormulaOpencode, '');
+    await server.client.call(recordProviderUpdate, { provider: 'opencode', outcome: { state: 'updating' } });
+    expect(linesOf(server, '/usr/bin/codesign')).toEqual([]);
+  });
+  it('keeps the signers out of what the comb reads', async () => {
+    const server = await codexMidUpdate();
+    const [codex] = await server.client.call(listProviderVersions, { provider: 'codex' });
+    expect(codex?.lastUpdate).toEqual({ state: 'updating', at: '2026-10-31T12:00:00.000Z' });
   });
 });
