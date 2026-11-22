@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'bun:test';
-import { cacheSavingsOf, findTokenRate, parsePriceTable, ratesFor, typeCostsOf } from '#domain/usage/token-prices';
+import { ProviderId } from '#domain/providers/provider';
+import {
+  cacheSavingsOf,
+  findTokenRate,
+  parsePriceTable,
+  priceLookupModelsOf,
+  ratesFor,
+  typeCostsOf,
+} from '#domain/usage/token-prices';
 
 const Table = {
   sample_spec: { input_cost_per_token: 'not a model' },
@@ -44,6 +52,28 @@ describe('the price table', () => {
   });
   it('prices a bracketed variant as its base model', () => {
     expect(findTokenRate(rates, 'Claude-Test-1[1m]')).toEqual(findTokenRate(rates, 'claude-test-1'));
+  });
+  it('prices effort-suffixed models as their base model only for Antigravity, keeping exact matches', () => {
+    expect(findTokenRate(rates, 'claude-test-1-high', ProviderId.antigravity)).toEqual(
+      findTokenRate(rates, 'claude-test-1')
+    );
+    expect(findTokenRate(rates, 'claude-test-1-xhigh', ProviderId.antigravity)).toEqual(
+      findTokenRate(rates, 'claude-test-1')
+    );
+    expect(findTokenRate(rates, 'gpt-test-1-max', ProviderId.opencode)).toBeUndefined();
+    expect(findTokenRate(rates, 'gpt-test-1-medium', ProviderId.codex)).toBeUndefined();
+    expect(findTokenRate(rates, 'claude-test-1-high')).toBeUndefined();
+    const exact = { input: 0.00001, output: 0.00002, cacheRead: 0.000001, cacheWrite: 0.000005 };
+    expect(
+      findTokenRate({ ...rates, 'claude-test-1-high': exact }, 'claude-test-1-high', ProviderId.antigravity)
+    ).toEqual(exact);
+    expect(findTokenRate({ ...rates, opus: exact }, 'opus-high', ProviderId.antigravity)).toBeUndefined();
+    expect(
+      priceLookupModelsOf([
+        { provider: ProviderId.antigravity, model: 'claude-test-1-high' },
+        { provider: ProviderId.opencode, model: 'gpt-test-1-max' },
+      ])
+    ).toEqual(['claude-test-1-high', 'claude-test-1', 'gpt-test-1-max']);
   });
   it('never prices a bare family name, or a property every object has', () => {
     expect(findTokenRate({ ...rates, opus: rates['claude-test-1']! }, 'opus')).toBeUndefined();

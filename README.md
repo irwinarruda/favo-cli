@@ -120,7 +120,7 @@ favo usage --tokens           # what every seat used
 favo usage --cost --days 7    # the same in dollars, for the last week
 ```
 
-favo counts from the session logs Claude Code and Codex already keep and from OpenCode's database, reading only numbers, and keeps its own count, so a month Claude Code has deleted is still there.
+favo counts from the session logs Claude Code, Codex and Antigravity already keep and from OpenCode's database, reading only numbers, and keeps its own count, so a month Claude Code has deleted is still there.
 
 ### A TUI you will want to leave open
 
@@ -168,15 +168,15 @@ If the app and Claude Code are signed in to different accounts, the tag turns re
 
 ## Supported providers
 
-| Provider        | Private to each account | Shared across accounts                                                     |
-| --------------- | ----------------------- | -------------------------------------------------------------------------- |
-| Claude Code     | login, threads, history | CLAUDE.md, settings, skills, agents, commands, hooks, plugins, keybindings |
-| Codex           | login, threads, history | AGENTS.md, config.toml, hooks.json, skills, agents, rules, prompts         |
-| OpenCode        | logins, threads         | all of its config                                                          |
-| Antigravity CLI | conversations           | GEMINI.md, settings, skills, plugins                                       |
+| Provider        | Private to each account             | Shared across accounts                                                     |
+| --------------- | ----------------------------------- | -------------------------------------------------------------------------- |
+| Claude Code     | login, threads, history             | CLAUDE.md, settings, skills, agents, commands, hooks, plugins, keybindings |
+| Codex           | login, threads, history             | AGENTS.md, config.toml, hooks.json, skills, agents, rules, prompts         |
+| OpenCode        | logins, threads                     | all of its config                                                          |
+| Antigravity CLI | login, conversations, settings.json | GEMINI.md, .gemini/config, skills, plugins                                 |
 
-> [!WARNING]
-> **Antigravity is the exception.** Conversations are separate per account, but favo could not verify that its login is, and the TUI says so on that seat. It also runs in a private home folder that mirrors yours, so it can see your other files there, not only the shared list above.
+> [!NOTE]
+> Antigravity runs in a private home folder that mirrors yours, so it can see your other files there, not only the shared list above. Each account keeps its own Google login.
 
 ## How it works
 
@@ -269,9 +269,9 @@ Providers are `claude`, `codex`, `agy` and `opencode`. Most commands take `--mac
 
 `favo usage` and the `u` screen have three pages: Limits, Tokens and Cost. Limits is the default, and `--limits`, `--tokens` and `--cost` pick one. Every page takes `--machine`, `--account` and `--provider`, each as many times as you like, and `--json`. In the TUI, `l` `t` `c` change the page and `f` opens the same three filters.
 
-**Limits** asks Claude Code and Codex through their own commands, so no token is read and no thread starts. OpenCode and Antigravity show no limits for now, because neither has a source that works without a token. favo reads them once when the TUI opens, so the numbers are ready when you press `u`, and `favo usage` reads them when you run it. The bars show what is left: the thick part is yours now, the thinner part is what the next reset gives back, and the tall mark is how much of the window's time is left, so a bar that stops short of it is spending too fast.
+**Limits** asks Claude Code, Codex and Antigravity through their own commands, so no token is read and no thread starts. OpenCode shows no limits for now, because it has no source that works without a token. favo reads them once when the TUI opens, so the numbers are ready when you press `u`, and `favo usage` reads them when you run it. The bars show what is left: the thick part is yours now, the thinner part is what the next reset gives back, and the tall mark is how much of the window's time is left, so a bar that stops short of it is spending too fast.
 
-**Tokens** counts what each seat used, from the session logs Claude Code and Codex already keep on each machine and from OpenCode's database, which favo opens read-only. favo reads only numbers, times, model names and ids from them, never the text of a message. OpenCode's reasoning tokens count as output. Claude Code deletes its logs after 30 days, so favo keeps its own count by hour in `~/.favo/usage` and only ever raises it. It counts once a day when the TUI opens, and again when you open the page or run the command. The same account on two machines is counted on both, because tokens are work done. Antigravity is not counted yet. `--days <n>` sets the period, 30 when left out, and `--all` is everything favo has kept. In the TUI, `1` to `5` or the arrows pick 24 hours, 7, 30 or 90 days, or all.
+**Tokens** counts what each seat used, from the session logs Claude Code, Codex and Antigravity already keep on each machine and from OpenCode's database, which favo opens read-only. favo reads only numbers, times, model names and ids from them, never the text of a message. OpenCode's reasoning tokens count as output. Claude Code deletes its logs after 30 days, so favo keeps its own count by hour in `~/.favo/usage` and only ever raises it. It counts once a day when the TUI opens, and again when you open the page or run the command. The same account on two machines is counted on both, because tokens are work done. `--days <n>` sets the period, 30 when left out, and `--all` is everything favo has kept. In the TUI, `1` to `5` or the arrows pick 24 hours, 7, 30 or 90 days, or all.
 
 **Cost** is the same count in dollars: what the API would charge for those tokens at list prices, not what your subscription bills you. The prices are LiteLLM's public table. Every model is priced at its base rate, with no long-context or fast-mode tiers. A model the table does not know is counted in tokens and left out of every dollar.
 
@@ -330,7 +330,7 @@ A provider writes its thread ID straight to the terminal as it closes, so favo c
 
 `favo resume` looks for the newest thread in this folder, then anywhere on that seat, and starts from the thread's own folder. Pass a number from `favo threads`, or any unique part of an ID, to choose another. A session you opened and closed without saying anything is not shown, because there is nothing to resume. Threads go to the trash with a cell when you `favo rm` it, and they live on the machine that ran them, so `--machine` works here too.
 
-Without the hook, favo still lists what Codex and OpenCode keep for this folder. That list can pick the wrong thread with two sessions in one folder, so favo marks it as a guess.
+Without the hook, favo still lists what Codex, Antigravity and OpenCode keep for this folder. That list can pick the wrong thread with two sessions in one folder, so favo marks it as a guess.
 
 `favo hooks status` tells you if a hook cannot work, such as `disableAllHooks` in your settings, or a seat with its own `settings.json` instead of the shared one.
 
@@ -392,12 +392,12 @@ Homebrew only reads a tap such as `irwinarruda/tap` when it updates itself, and 
 
 In the comb, `v` lists every provider CLI on every machine: its version and how it was installed. A version older than on another machine is marked. When an update there did not go through, whether it ran here, over ssh or from `P`, it says why: still updating, failed, stopped, or left alone. An update that worked leaves nothing behind. `P` runs the update for the selected machine in your terminal and opens that list when you come back. favo reads the versions in the background when the comb opens, from the binaries themselves, and never asks the internet what the latest one is.
 
-| Provider    | How it updates                                                                                                                                                  |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Code | `claude update`. A Homebrew install only prints what to run there, so favo runs `brew upgrade --cask` itself.                                                   |
-| Codex       | `codex update`, then the package manager if that fails.                                                                                                         |
-| OpenCode    | `opencode upgrade`, then the package manager if that fails.                                                                                                     |
-| Antigravity | It has no update command, and updates itself. A Homebrew install gets `brew upgrade --cask antigravity-cli`. Any other install is left alone, and favo says so. |
+| Provider    | How it updates                                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | `claude update`. A Homebrew install only prints what to run there, so favo runs `brew upgrade --cask` itself.                                           |
+| Codex       | `codex update`, then the package manager if that fails.                                                                                                 |
+| OpenCode    | `opencode upgrade`, then the package manager if that fails.                                                                                             |
+| Antigravity | `agy update`. A Homebrew install disables auto-updates in its wrapper and asks for Homebrew, so favo runs `brew upgrade --cask antigravity-cli` itself. |
 
 A global npm install belongs to its Node version, so favo uses the `npm` next to it. A `mise` or `asdf` shim hides where the real install is, so favo runs the provider's own command there, with no package manager to fall back on. favo never runs `sudo`: if a system-wide install needs it, you see the failure and can run the command yourself.
 

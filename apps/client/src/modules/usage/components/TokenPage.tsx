@@ -26,7 +26,6 @@ export function TokenPage({ scrollRef, width }: UsagePageProps) {
   const colors = useApp((state) => state.colors);
   const report = useApp((state) => state.tokenReport);
   const timeZone = useApp((state) => state.usageTimeZone);
-  const uncounted = useApp((state) => state.uncountedProviders);
   const skippedRecords = useApp((state) => state.skippedTokenRecords);
   const isReading = useApp((state) => state.isTokensReading);
   const hasReadings = useApp((state) => state.hasTokenReadings);
@@ -91,7 +90,7 @@ export function TokenPage({ scrollRef, width }: UsagePageProps) {
           ))}
         </box>
       )}
-      <TokenBars title="Providers" groups={report.providers} uncounted={uncounted} columns={columns} width={width} />
+      <TokenBars title="Providers" groups={report.providers} columns={columns} width={width} />
       <TokenBars title="Accounts" groups={report.accounts} columns={columns} width={width} />
       <TokenBars title="Machines" groups={report.machines} columns={columns} width={width} />
       <box flexDirection="column" flexShrink={0} paddingLeft={2} marginBottom={1}>

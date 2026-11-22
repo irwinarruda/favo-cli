@@ -234,12 +234,6 @@ describe('what the page shows', () => {
     });
     expect(priced.state.tokenReport.total).toMatchObject({ unpricedTokens: 7_000_000, pricedTokens: 1_100_000_000 });
   });
-  test('names the providers favo does not count yet, unless they are filtered out', async () => {
-    const app = await openTokens();
-    expect(app.state.uncountedProviders).toEqual(['Antigravity']);
-    app.state.toggleUsageFilter('providers', 'antigravity');
-    expect(app.state.uncountedProviders).toEqual([]);
-  });
   test('adds up the records that could not be read, on the machines shown', async () => {
     const app = await openTokens(() => {
       mockDb.tokenUsage.local!.skippedRecords = 2;

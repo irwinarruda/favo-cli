@@ -1,14 +1,21 @@
 import type { HookView } from '@favo/contracts/rpc/views';
 import { nativePath } from '@favo/domain/directories/directory-input';
 import {
+  HookBlockReason,
   HookState,
+  hookBlockReasonOf,
   hookPathOf,
   hookStateOf,
-  isHookBlocked,
   withHook,
   withoutHook,
 } from '@favo/domain/hooks/provider-hook';
-import { HookKind, type ProviderId, ProviderOrder, Providers } from '@favo/domain/providers/provider';
+import {
+  HookKind,
+  type ProviderId,
+  ProviderOrder,
+  type ProviderSpec,
+  Providers,
+} from '@favo/domain/providers/provider';
 import { assertDomain, DomainError, DomainErrorCode } from '@favo/domain/shared/domain-error';
 import { EntryKind, isItemHealthy, SharedItemState } from '@favo/domain/sharing/shared-item';
 import type { AccountRepository } from '@/modules/accounts/repositories/account.repository';
@@ -95,7 +102,7 @@ export class HooksService {
     const spec = Providers[provider];
     const { state, problem } = await this.stateOf(provider);
     const text = await this.fileSystem.readText(this.pathOf(provider));
-    const isBlocked = problem === undefined && isHookBlocked(spec, text);
+    const blockReason = problem === undefined ? hookBlockReasonOf(spec, text) : undefined;
     const seatProblems = state === HookState.absent ? [] : await this.seatProblems(provider);
     return {
       provider,
@@ -106,7 +113,7 @@ export class HooksService {
       file: nativePath(this.pathOf(provider), this.paths.isWindows),
       problems: [
         ...(problem ? [problem] : []),
-        ...(isBlocked ? [`disableAllHooks is on in ${spec.hook.sharedItem}, so hooks never run.`] : []),
+        ...(blockReason ? [blockedMessageOf(spec, blockReason)] : []),
         ...seatProblems,
       ],
     };
@@ -139,4 +146,10 @@ export class HooksService {
   private pathOf(provider: ProviderId) {
     return hookPathOf(Providers[provider], this.paths);
   }
+}
+
+function blockedMessageOf({ hook }: ProviderSpec, reason: HookBlockReason) {
+  if (reason === HookBlockReason.disabledBlock) return `favo's hook is disabled in ${hook.file}, so hooks never run.`;
+  const location = hook.kind === HookKind.namedBlock ? hook.file : hook.sharedItem;
+  return `disableAllHooks is on in ${location}, so hooks never run.`;
 }

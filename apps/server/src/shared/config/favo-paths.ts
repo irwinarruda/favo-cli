@@ -23,6 +23,7 @@ export function favoPathsOf(input: { home: string; favoHome?: string; configHome
     priceTableFile: `${root}/usage/prices.json`,
     keptTokenUsage: `${root}/usage/machines`,
     emptyFolder: `${root}/empty`,
+    temp: `${root}/tmp`,
     machinesFile: `${root}/machines.json`,
     configFile: `${root}/config.json`,
   };

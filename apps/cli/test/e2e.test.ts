@@ -77,18 +77,20 @@ afterEach(() => removeFolder(root));
 describe('favo update', () => {
   it('runs the provider command with the terminal attached, and reports the result', async () => {
     writeFileSync(`${root}/codex-version`, '0.1.0');
+    writeFileSync(`${root}/agy-version`, '1.5.14');
     const { stdout, code } = await favo(['update', '--skip-favo', '--providers', '--machine', 'local'], {
       FAKE_CODEX_VERSION_FILE: `${root}/codex-version`,
+      FAKE_AGY_VERSION_FILE: `${root}/agy-version`,
     });
     expect(code).toBe(0);
     expect(stdout).toContain('Codex 0.1.0, own install at');
     expect(stdout).toContain('fake codex updating');
     expect(stdout).toContain('Codex 0.1.0 → 0.2.0');
+    expect(stdout).toContain('Antigravity 1.5.14, own install at');
+    expect(stdout).toContain('fake agy updating');
+    expect(stdout).toContain('Antigravity 1.5.14 → 1.5.15');
     expect(existsSync(`${home}/.favo/updates/codex.json`)).toBe(false);
-    expect(JSON.parse(readFileSync(`${home}/.favo/updates/antigravity.json`, 'utf8'))).toMatchObject({
-      state: 'leftAlone',
-      reason: 'it updates itself, or through whatever installed it',
-    });
+    expect(existsSync(`${home}/.favo/updates/antigravity.json`)).toBe(false);
   });
   it('updates favo alone unless the provider CLIs are asked for', async () => {
     const { stdout, code } = await favo(['update', '--machine', 'local']);
@@ -469,6 +471,31 @@ describe('favo on this machine', () => {
     expect(stdout).toContain(`home=${home}/.favo/accounts/work/antigravity`);
     expect(stdout).toContain('gitconfig=[user] name = bee');
   });
+  it('reads Antigravity identity, limits and tokens through its own CLI and transcripts', async () => {
+    await favo(['add', 'work']);
+    const path = (await favo(['path', 'agy', 'work'])).stdout.trim();
+    mkdirSync(`${path}/.gemini/antigravity-cli/brain/conv-1/.system_generated/logs`, { recursive: true });
+    writeFileSync(`${path}/.gemini/antigravity-cli/signed-in`, 'agy@bee.dev');
+    writeFileSync(
+      `${path}/.gemini/antigravity-cli/brain/conv-1/.system_generated/logs/transcript.jsonl`,
+      `${JSON.stringify({
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        created_at: new Date().toISOString(),
+        model: 'gemini-4-neon-xhigh',
+        input_tokens: 1_000_000,
+        cache_read_tokens: 2_000_000,
+        output_tokens: 500_000,
+      })}\n`
+    );
+    expect((await favo(['list'])).stdout).toContain('agy@bee.dev · Google AI Pro');
+    expect(readdirSync(`${home}/.favo/tmp`)).toEqual([]);
+    expect((await favo(['usage', '--provider', 'agy'])).stdout).toContain('Session · Gemini');
+    const tokens = (await favo(['usage', '--tokens', '--provider', 'agy'])).stdout;
+    expect(tokens).toContain('3.5M tokens   1 session');
+    expect(tokens).toContain('Antigravity');
+    expect(tokens).toContain('gemini-4-neon-xhigh');
+  });
   it('runs OpenCode standalone with its own data', async () => {
     await favo(['add', 'work']);
     const { stdout } = await favo(['opencode', 'work']);
@@ -718,10 +745,11 @@ describe.skipIf(isWindows)('favo with another machine', () => {
     expect(code).toBe(0);
     expect(stdout).toContain('Provider CLIs on remote');
     expect(stdout.match(/fake codex updating/g)).toHaveLength(2);
+    expect(stdout.match(/fake agy updating/g)).toHaveLength(2);
     expect(readFileSync(`${root}/ssh.log`, 'utf8')).toMatch(
       /-t -- bee@remote ~\/\.favo\/bin\/favo --argv-b64 [A-Za-z0-9_-]+\n/
     );
-    expect(existsSync(`${remoteHome}/.favo/updates/antigravity.json`)).toBe(true);
+    expect(existsSync(`${remoteHome}/.favo/updates/antigravity.json`)).toBe(false);
     expect(existsSync(`${remoteHome}/.favo/updates/codex.json`)).toBe(false);
   });
   it('updates only the machine you name', async () => {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ProviderId } from '#domain/providers/provider';
 import { ownValue } from '#domain/shared/own-value';
 import type { TokenCounts } from '#domain/usage/token-usage';
 
@@ -12,6 +13,7 @@ export const NotABillMessage = 'what the API would charge for these tokens, not 
 
 const FirstPartyMakers = ['anthropic', 'deepseek', 'gemini', 'meta', 'mistral', 'openai', 'xai'];
 const BedrockPrefix = 'anthropic.';
+const EffortSuffix = /-(?:minimal|low|medium|high|xhigh|max)$/;
 const UnpriceableModels = ['<synthetic>', 'synthetic', 'opus', 'sonnet', 'haiku', 'fable'];
 
 export const TokenRate = z.strictObject({
@@ -68,11 +70,26 @@ export function priceKeyOf(model: string) {
   return bracket < 0 ? lowered : lowered.slice(0, bracket);
 }
 
-export function findTokenRate(rates: TokenRates, model: string) {
+export function findTokenRate(rates: TokenRates, model: string, provider?: ProviderId) {
   const key = priceKeyOf(model);
   const bare = bareNameOf(key);
   if (bare.length === 0 || UnpriceableModels.includes(bare)) return undefined;
-  return ownValue(rates, key);
+  const direct = ownValue(rates, key);
+  if (direct || provider !== ProviderId.antigravity) return direct;
+  const trimmed = effortBaseOf(key);
+  if (!trimmed) return undefined;
+  return ownValue(rates, trimmed);
+}
+
+export function priceLookupModelsOf(rows: { provider: ProviderId; model: string }[]) {
+  const models = new Set<string>();
+  for (const { provider, model } of rows) {
+    models.add(model);
+    if (provider !== ProviderId.antigravity) continue;
+    const base = effortBaseOf(priceKeyOf(model));
+    if (base) models.add(base);
+  }
+  return [...models];
 }
 
 export function ratesFor(rates: TokenRates, models: string[]): TokenRates {
@@ -120,6 +137,12 @@ function bareNameOf(key: string) {
 
 function bedrockBaseOf(key: string) {
   return key.startsWith(BedrockPrefix) ? key.slice(BedrockPrefix.length) : key;
+}
+
+function effortBaseOf(key: string) {
+  const trimmed = key.replace(EffortSuffix, '');
+  if (trimmed === key || UnpriceableModels.includes(bareNameOf(trimmed))) return undefined;
+  return trimmed;
 }
 
 function isSameRate(left: TokenRate, right: TokenRate) {

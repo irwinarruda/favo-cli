@@ -43,6 +43,21 @@ export class MemoryTokenLogs extends TokenLogs {
     return { root, files };
   }
 
+  async childFiles(folder: string, relativePath: string) {
+    const root = this.realPathOf(folder);
+    const prefix = `${folder}/`;
+    const suffix = `/${relativePath}`;
+    const files = [...this.reachablePaths()]
+      .filter((path) => {
+        if (!path.startsWith(prefix) || !path.endsWith(suffix)) return false;
+        const child = path.slice(prefix.length, -suffix.length);
+        return child.length > 0 && !child.includes('/');
+      })
+      .toSorted()
+      .map((path) => ({ path, realPath: this.realPathOf(path), createdAt: this.created.get(this.realPathOf(path)) }));
+    return { root, files };
+  }
+
   async read(path: string, markers: string[], onLine: (line: string) => void) {
     this.reads.push(path);
     await this.hold;

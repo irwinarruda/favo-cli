@@ -430,12 +430,21 @@ describe('favo update, for the provider CLIs', () => {
     await server.run('update', '--skip-favo', '--providers');
     expect(server.text()).toContain('another copy, left alone: /usr/bin/codex');
   });
-  it('says what it cannot do for an Antigravity that updates itself', async () => {
+  it('updates a standalone Antigravity with agy update, and leaves Homebrew alone when brew is missing', async () => {
     const server = await updater();
-    await withProvider(server, 'agy', `${Home}/.local/bin/antigravity`);
+    await withProvider(server, 'agy', `${Home}/.local/bin/agy`);
     expect(await server.run('update', '--skip-favo', '--providers')).toBe(0);
-    expect(server.plans).toEqual([]);
-    expect(server.text()).toContain('it updates itself');
+    expect(commandsOf(server.plans)).toEqual(['/opt/homebrew/bin/agy update']);
+    const withoutBrew = await updater();
+    withoutBrew.processes.uninstall('brew');
+    await withProvider(
+      withoutBrew,
+      'agy',
+      '/opt/homebrew/Caskroom/antigravity-cli/1.5.14,5302690847260672/.homebrew-command-wrappers/agy'
+    );
+    expect(await withoutBrew.run('update', '--skip-favo', '--providers')).toBe(0);
+    expect(withoutBrew.plans).toEqual([]);
+    expect(withoutBrew.text()).toContain('favo could not find brew to update it');
   });
   it('says so when no provider is installed', async () => {
     const server = await updater();

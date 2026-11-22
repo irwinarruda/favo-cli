@@ -10,7 +10,8 @@ export const HelpText = `favo, a honeycomb for your AI subscriptions
 Accounts
   favo list [--json]                 every machine, account and login
   favo usage [--json]                what every seat has left, and when it
-                                     comes back (Claude Code, Codex)
+                                     comes back (Claude Code, Codex,
+                                     Antigravity)
   favo usage --tokens                what every seat used, counted from the
                                      session logs on each machine
   favo usage --cost                  the same in dollars, at API list prices

@@ -1,5 +1,5 @@
 import type { TokenGroup } from '@favo/domain/usage/token-report';
-import { NotCountedLabel, type TokenColumns, tokenBarOf, tokenNumbersOf } from '@favo/domain/usage/token-view';
+import { type TokenColumns, tokenBarOf, tokenNumbersOf } from '@favo/domain/usage/token-view';
 import { useApp } from '@/shared/stores/app';
 
 const MinimumBarWidth = 10;
@@ -9,18 +9,17 @@ const RowChrome = 12;
 type TokenBarsProps = {
   title: string;
   groups: TokenGroup[];
-  uncounted?: string[];
   columns: TokenColumns;
   width: number;
 };
 
-export function TokenBars({ title, groups, uncounted = [], columns, width }: TokenBarsProps) {
+export function TokenBars({ title, groups, columns, width }: TokenBarsProps) {
   const colors = useApp((state) => state.colors);
   const report = useApp((state) => state.tokenReport);
   const room = width - RowChrome - columns.name - columns.amount - columns.share - columns.other;
   const barWidth = Math.max(MinimumBarWidth, Math.min(MaximumBarWidth, room));
 
-  if (groups.length === 0 && uncounted.length === 0) return undefined;
+  if (groups.length === 0) return undefined;
 
   return (
     <box flexDirection="column" flexShrink={0} paddingLeft={2} marginBottom={1}>
@@ -43,11 +42,6 @@ export function TokenBars({ title, groups, uncounted = [], columns, width }: Tok
           </text>
         );
       })}
-      {uncounted.length > 0 && (
-        <text fg={colors.faint} wrapMode="none" truncate>
-          {`  ${uncounted.join(', ')}  ${NotCountedLabel}`}
-        </text>
-      )}
     </box>
   );
 }

@@ -55,7 +55,11 @@ export function createProductionServer(env: Record<string, string | undefined>) 
       clis: {
         [ProviderId.claude]: new ClaudeProviderCli(processes),
         [ProviderId.codex]: new CodexProviderCli(processes),
-        [ProviderId.antigravity]: new AntigravityProviderCli(processes),
+        [ProviderId.antigravity]: new AntigravityProviderCli(
+          processes,
+          fileSystem,
+          () => `${paths.temp}/agy-status-${process.pid}-${crypto.randomUUID()}.log`
+        ),
         [ProviderId.opencode]: new OpencodeProviderCli(processes),
       },
       ssh,

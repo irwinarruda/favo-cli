@@ -250,10 +250,24 @@ describe('favo usage --tokens', () => {
     expect(await mac.run('usage', '--tokens', '--machine', 'devbox')).toBe(1);
     expect(await mac.run('usage', '--cost', '--machine', 'devbox', '--json')).toBe(1);
   });
-  it('names the providers it does not count yet', async () => {
+  it('counts Antigravity transcripts and prices effort-suffixed models from their base rate', async () => {
     const mac = withLogs();
+    mac.tokenLogs.write(`${Home}/.gemini/antigravity-cli/brain/conv-1/.system_generated/logs/transcript.jsonl`, [
+      {
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        created_at: hoursAgo(1),
+        model: 'claude-test-1-high',
+        input_tokens: Million,
+        cache_read_tokens: 5 * Million,
+        output_tokens: Million,
+      },
+    ]);
     await mac.run('usage', '--tokens');
-    expect(mac.output()).toContain('\n  Antigravity  not counted yet\n');
+    const output = mac.output();
+    expect(output).toContain('43M tokens   3 sessions');
+    expect(output).toMatch(/Antigravity +▄+▂+ +7M +16% +\$19\.50/);
+    expect(output).toMatch(/claude-test-1-high +7M +16% +\$19\.50/);
   });
   it('says how many records it could not read', async () => {
     const mac = withLogs();

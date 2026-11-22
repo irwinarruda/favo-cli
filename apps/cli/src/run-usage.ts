@@ -12,7 +12,7 @@ import { ProviderOrder, Providers } from '@favo/domain/providers/provider';
 import { assertDomain, DomainError, DomainErrorCode } from '@favo/domain/shared/domain-error';
 import { LimitBarPart, limitHeadlineOf, limitRowOf } from '@favo/domain/usage/limit-bar';
 import { collectLimitPools, type LimitPool, type LimitPoolColumn } from '@favo/domain/usage/limit-pool';
-import { NotABillMessage } from '@favo/domain/usage/token-prices';
+import { NotABillMessage, priceLookupModelsOf } from '@favo/domain/usage/token-prices';
 import {
   DefaultTokenDays,
   TokenChartRows,
@@ -25,13 +25,12 @@ import {
   tokenDayRowsOf,
   tokenReportOf,
 } from '@favo/domain/usage/token-report';
-import { type MachineTokenUsage, TokenProviders } from '@favo/domain/usage/token-usage';
+import type { MachineTokenUsage } from '@favo/domain/usage/token-usage';
 import {
   barColumnsOf,
   chartCaptionsOf,
   lastReadOf,
   NoTokensMessage,
-  NotCountedLabel,
   skippedNoteOf,
   type TokenColumns,
   tokenBarOf,
@@ -79,7 +78,7 @@ async function printLimits(context: CommandContext, command: Command, chosen: Ma
   const { client, print } = context;
   const wanted = command.accounts ?? [];
   const providers: string[] = command.providers ?? [];
-  const names = wanted.length > 0 ? (await accountsOf(client, chosen)).names : {};
+  const names = wanted.length > 0 ? await accountsOf(client, chosen) : {};
   const accounts = shownAccountsOf(wanted, Object.keys(names), names);
   function isShown(seat: SeatLimitsView) {
     const isAccountShown = accounts.length === 0 || accounts.includes(seat.account);
@@ -158,7 +157,7 @@ async function printTokens(context: CommandContext, command: Command, machines: 
   const now = Date.now();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const metric = command.usagePage === UsagePage.cost ? TokenMetric.cost : TokenMetric.tokens;
-  const [readings, { names, installed }] = await Promise.all([
+  const [readings, names] = await Promise.all([
     Promise.all(chosen.map((machine) => machineTokensOf(client, machine))),
     accountsOf(client, chosen),
   ]);
@@ -171,7 +170,7 @@ async function printTokens(context: CommandContext, command: Command, machines: 
     accounts: hiddenFor(accountIds, shownAccounts),
     providers: hiddenFor([...ProviderOrder], command.providers ?? []),
   };
-  const models = [...new Set(rows.map((row) => row.model))];
+  const models = priceLookupModelsOf(rows);
   const prices = await client.call(readTokenPrices, { models, isFresh: false });
   const window: TokenWindow = command.isAllTime
     ? { unit: TokenWindowUnit.all, length: 0 }
@@ -214,10 +213,7 @@ async function printTokens(context: CommandContext, command: Command, machines: 
     `${context.paint.bold(title.padEnd(TitleWidth))}${context.paint.dim(`${period} · ${filterSummaryOf(choices)}`)}`
   );
   print('');
-  const uncounted = ProviderOrder.filter(
-    (id) => installed.includes(id) && !TokenProviders.includes(id) && !filter.providers.includes(id)
-  ).map((id) => Providers[id].label);
-  printTokenReport(context, report, timeZone, uncounted);
+  printTokenReport(context, report, timeZone);
   const skipped = skippedNoteOf(readings.reduce((total, { usage }) => total + usage.skippedRecords, 0));
   if (skipped) print(context.paint.dim(skipped));
   for (const { machine, problem } of readings) {
@@ -226,12 +222,7 @@ async function printTokens(context: CommandContext, command: Command, machines: 
   return exitCode;
 }
 
-function printTokenReport(
-  { print, paint }: CommandContext,
-  report: TokenReport,
-  timeZone: string,
-  uncounted: string[]
-) {
+function printTokenReport({ print, paint }: CommandContext, report: TokenReport, timeZone: string) {
   const isCost = report.metric === TokenMetric.cost;
   const { lead, facts } = tokenHeadlineOf(report);
   print(`  ${paint.accent(lead)}${facts.map((fact) => `${FactGap}${fact}`).join('')}`);
@@ -256,7 +247,7 @@ function printTokenReport(
   }
   const bars = { report, columns: barColumnsOf(report, MaximumNameWidth), hasBars: true };
   const models = { report, columns: tokenColumnsOf(report.models, report, MaximumNameWidth), hasBars: false };
-  printTokenGroups({ print, paint }, { ...bars, title: 'Providers', groups: report.providers, uncounted });
+  printTokenGroups({ print, paint }, { ...bars, title: 'Providers', groups: report.providers });
   printTokenGroups({ print, paint }, { ...bars, title: 'Accounts', groups: report.accounts });
   printTokenGroups({ print, paint }, { ...bars, title: 'Machines', groups: report.machines });
   printTokenGroups({ print, paint }, { ...models, title: 'Models', groups: report.models });
@@ -274,12 +265,11 @@ type TokenSection = {
   report: TokenReport;
   columns: TokenColumns;
   hasBars: boolean;
-  uncounted?: string[];
 };
 
 function printTokenGroups({ print, paint }: Pick<CommandContext, 'print' | 'paint'>, section: TokenSection) {
-  const { title, groups, report, columns, hasBars, uncounted = [] } = section;
-  if (groups.length === 0 && uncounted.length === 0) return;
+  const { title, groups, report, columns, hasBars } = section;
+  if (groups.length === 0) return;
   print(paint.bold(title));
   for (const group of groups) {
     const name = group.name.padEnd(columns.name);
@@ -293,7 +283,6 @@ function printTokenGroups({ print, paint }: Pick<CommandContext, 'print' | 'pain
     const note = group.note === undefined ? '' : paint.dim(`  ${group.note}`);
     print(`  ${group.isFaded ? paint.dim(name) : name}  ${bar}${lead}${other}${note}`);
   }
-  if (uncounted.length > 0) print(paint.dim(`  ${uncounted.join(', ')}  ${NotCountedLabel}`));
   print('');
 }
 
@@ -341,9 +330,5 @@ async function accountsOf(client: RpcClient, machines: Machine[]) {
     )
   );
   const accounts = listed.flat();
-  const seats = accounts.flatMap((account) => account.seats.filter((seat) => seat.isInstalled));
-  return {
-    names: Object.fromEntries(accounts.map(({ name, displayName }) => [name, displayName])),
-    installed: seats.map((seat) => seat.provider),
-  };
+  return Object.fromEntries(accounts.map(({ name, displayName }) => [name, displayName]));
 }

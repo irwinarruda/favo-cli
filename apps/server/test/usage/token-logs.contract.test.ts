@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import { DomainErrorCode } from '@favo/domain/shared/domain-error';
@@ -10,7 +11,7 @@ import { MemoryTokenLogs } from '@/modules/usage/gateways/memory.token-logs';
 import type { TokenLogs } from '@/modules/usage/gateways/token-logs';
 import { zstdContentSizeOf } from '@/modules/usage/utils/zstd-frame';
 
-const realRoot = realpathSync(mkdtempSync(`${tmpdir()}/favo-logs-`)).replaceAll('\\', '/');
+const realRoot = (await realpath(mkdtempSync(`${tmpdir()}/favo-logs-`))).replaceAll('\\', '/');
 afterAll(() => rmSync(realRoot, { recursive: true, force: true }));
 
 const Lines = ['{"type":"user","text":"hello"}', '{"type":"assistant","usage":1}', '{"usage":2,"note":"çã"}'];
@@ -106,6 +107,19 @@ describe.each(doubles)('token logs on %s', (_name, create, root) => {
     write(`${root}/flat/notes.txt`, Lines);
     write(`${root}/flat/deep/other.db`, Lines);
     expect(await pathsOf(logs, `${root}/flat`, ['.db'], false)).toEqual([`${root}/flat/own.db`]);
+  });
+  it('lists a fixed file inside each immediate subfolder, without walking deeper', async () => {
+    const { logs, write } = create();
+    const tail = '.system_generated/logs/transcript.jsonl';
+    write(`${root}/brain/b/${tail}`, Lines);
+    write(`${root}/brain/a/${tail}`, Lines);
+    write(`${root}/brain/a/.system_generated/logs/transcript_full.jsonl`, Lines);
+    write(`${root}/brain/a/nested/c/${tail}`, Lines);
+    write(`${root}/brain/plain.jsonl`, Lines);
+    const { root: listed, files } = await logs.childFiles(`${root}/brain`, tail);
+    expect(listed).toBe(`${root}/brain`);
+    expect(files.map(({ path }) => path)).toEqual([`${root}/brain/a/${tail}`, `${root}/brain/b/${tail}`]);
+    expect((await logs.childFiles(`${root}/missing`, tail)).files).toEqual([]);
   });
   it('lists nothing for a folder that is not there', async () => {
     expect(await pathsOf(create().logs, `${root}/missing`, ['.jsonl'])).toEqual([]);

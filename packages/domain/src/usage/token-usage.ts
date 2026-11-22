@@ -9,7 +9,12 @@ const OldestVersionCountingTheSame = 2;
 const FirstVersionRememberingLogs = 3;
 export const MaximumTokenCount = 1_000_000_000_000;
 export const TokenUsageFreshForMs = 24 * HourMs;
-export const TokenProviders: ProviderId[] = [ProviderId.claude, ProviderId.codex, ProviderId.opencode];
+export const TokenProviders: ProviderId[] = [
+  ProviderId.claude,
+  ProviderId.codex,
+  ProviderId.antigravity,
+  ProviderId.opencode,
+];
 
 export const TokenUsageRow = z.strictObject({
   hour: z.iso.datetime(),
